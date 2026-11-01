@@ -9,6 +9,8 @@ import { isActiveTrack, type DisplayThreat } from '../lib/threatDisplay'
 import type { Feature } from 'geojson'
 
 const STORAGE_KEY = 'alert-tracker:watched-oblasts'
+/** Soft cap so Windows toast center cannot be flooded. */
+const MIN_NOTIFY_GAP_MS = 2_500
 
 function readStored(): string[] {
   try {
@@ -37,10 +39,10 @@ export type WatchToast = {
 }
 
 /**
- * Watch selected oblasts; fire browser Notification (+ in-app toast) when a live
- * threat newly enters a watched region.
+ * Watch selected oblasts; notify only when a live threat *enters*
+ * (not for targets already inside when watch is enabled).
  */
-export function useOblastWatch(threats: DisplayThreat[], now: number) {
+export function useOblastWatch(threats: DisplayThreat[], _now: number) {
   const [list, setList] = useState<OblastMeta[]>([])
   const [watched, setWatched] = useState<string[]>(() =>
     typeof window !== 'undefined' ? readStored() : [],
@@ -52,8 +54,11 @@ export function useOblastWatch(threats: DisplayThreat[], now: number) {
   const featuresRef = useRef<Feature[]>([])
   /** threatId → oblast key currently inside (watched only). */
   const insideRef = useRef(new Map<string, string>())
-  /** Dedupe key: `${threatId}:${oblastKey}` already alerted while continuously inside. */
-  const alertedRef = useRef(new Set<string>())
+  const prevWatchedRef = useRef<string[]>([])
+  const primedRef = useRef(false)
+  const lastNotifyAtRef = useRef(0)
+  const threatsRef = useRef(threats)
+  threatsRef.current = threats
 
   useEffect(() => {
     let cancelled = false
@@ -86,24 +91,25 @@ export function useOblastWatch(threats: DisplayThreat[], now: number) {
     return res
   }, [])
 
-  const pushAlert = useCallback(
-    (title: string, body: string) => {
-      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-      setToasts((prev) => [{ id, title, body, at: Date.now() }, ...prev].slice(0, 4))
-      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-        try {
-          new Notification(title, {
-            body,
-            tag: `oblast-${body.slice(0, 48)}`,
-            silent: false,
-          })
-        } catch {
-          /* ignore */
-        }
-      }
-    },
-    [],
-  )
+  const pushAlert = useCallback((title: string, body: string) => {
+    const now = Date.now()
+    // Always keep a short in-app toast; throttle OS notifications harder.
+    const id = `${now}-${Math.random().toString(36).slice(2, 7)}`
+    setToasts((prev) => [{ id, title, body, at: now }, ...prev].slice(0, 3))
+
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+    if (now - lastNotifyAtRef.current < MIN_NOTIFY_GAP_MS) return
+    lastNotifyAtRef.current = now
+    try {
+      new Notification(title, {
+        body,
+        tag: `oblast-enter-${title}`,
+        silent: false,
+      })
+    } catch {
+      /* ignore */
+    }
+  }, [])
 
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id))
@@ -133,56 +139,87 @@ export function useOblastWatch(threats: DisplayThreat[], now: number) {
   const clearAll = useCallback(() => {
     persist([])
     insideRef.current.clear()
-    alertedRef.current.clear()
+    prevWatchedRef.current = []
+    primedRef.current = false
   }, [persist])
 
-  // Detect enter events
+  /** Mark everyone currently inside `keys` as already known — no alerts. */
+  const seedSilent = useCallback((keys: string[]) => {
+    if (!keys.length || !featuresRef.current.length) return
+    const keySet = new Set(keys)
+    const live = threatsRef.current.filter((t) => isActiveTrack(t) && !t.areaOnly)
+    const ts = Date.now()
+    for (const threat of live) {
+      const p = predict(threat, ts)
+      const oblast = findOblastKey(p.lon, p.lat, featuresRef.current)
+      if (!oblast || !keySet.has(oblast)) continue
+      insideRef.current.set(threat.id, oblast)
+    }
+  }, [])
+
+  // Detect only real enters into watched oblasts
   useEffect(() => {
-    if (!watched.length || !featuresRef.current.length) return
+    if (!featuresRef.current.length) return
+
+    if (!watched.length) {
+      insideRef.current.clear()
+      prevWatchedRef.current = []
+      primedRef.current = false
+      return
+    }
+
     const watchedSet = new Set(watched)
     const nameByKey = new Map(list.map((o) => [o.key, o.name]))
+    const prevWatched = prevWatchedRef.current
+    const added = watched.filter((k) => !prevWatched.includes(k))
+
+    // First arm, or newly checked oblasts: baseline without notifying.
+    if (!primedRef.current) {
+      seedSilent(watched)
+      primedRef.current = true
+      prevWatchedRef.current = [...watched]
+      return
+    }
+    if (added.length) {
+      seedSilent(added)
+      prevWatchedRef.current = [...watched]
+      // Continue into enter detection for other movement in this same tick.
+    } else {
+      prevWatchedRef.current = [...watched]
+    }
+
     const live = threats.filter((t) => isActiveTrack(t) && !t.areaOnly)
     const seen = new Set<string>()
+    const ts = Date.now()
 
     for (const threat of live) {
       seen.add(threat.id)
-      const p = predict(threat, now)
+      const p = predict(threat, ts)
       const key = findOblastKey(p.lon, p.lat, featuresRef.current)
       const prev = insideRef.current.get(threat.id)
 
       if (!key || !watchedSet.has(key)) {
-        if (prev) {
-          alertedRef.current.delete(`${threat.id}:${prev}`)
-          insideRef.current.delete(threat.id)
-        }
+        if (prev) insideRef.current.delete(threat.id)
         continue
       }
 
-      if (prev && prev !== key) {
-        alertedRef.current.delete(`${threat.id}:${prev}`)
-      }
-      insideRef.current.set(threat.id, key)
-      const dedupe = `${threat.id}:${key}`
-      if (alertedRef.current.has(dedupe)) continue
+      // Still in the same watched oblast — ignore.
+      if (prev === key) continue
 
-      // First time this threat is seen inside this watched oblast
-      alertedRef.current.add(dedupe)
+      // Real enter: was outside watched area, or came from another oblast.
+      insideRef.current.set(threat.id, key)
       const meta = getTypeMeta(threat.type)
       const oblastName = nameByKey.get(key) ?? key
       pushAlert(
         `${meta.shortLabel} · ${oblastName}`,
-        threat.title || `Загроза в області «${oblastName}»`,
+        threat.title || `Загроза зайшла в «${oblastName}»`,
       )
     }
 
     for (const id of [...insideRef.current.keys()]) {
-      if (!seen.has(id)) {
-        const prev = insideRef.current.get(id)
-        if (prev) alertedRef.current.delete(`${id}:${prev}`)
-        insideRef.current.delete(id)
-      }
+      if (!seen.has(id)) insideRef.current.delete(id)
     }
-  }, [threats, watched, now, list, pushAlert])
+  }, [threats, watched, list, pushAlert, seedSilent])
 
   // Auto-dismiss toasts
   useEffect(() => {
