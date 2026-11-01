@@ -13,11 +13,10 @@ type CacheEntry<T> = {
 const NEPTUN = 'https://neptun.in.ua'
 const MAPA = 'https://mapa.ua/api/v1/current'
 const DSM = 'https://dronestrikemap.com'
-const RADAR_MAP = 'https://radar-map.ru'
 const PORT = Number(process.env.PORT || 8787)
 const HIDE_TRACKS = process.env.HIDE_TRACKS === '1'
 const DSM_CACHE_TTL_MS = 10 * 60_000
-const RADAR_CACHE_TTL_MS = 30_000
+const RU_TG_CACHE_TTL_MS = 60_000
 
 const app = new Hono()
 app.use(
@@ -34,7 +33,8 @@ const mapaCurrent: CacheEntry<unknown> = blank()
 const dsmDayCache = new Map<string, CacheEntry<unknown>>()
 const dsmSites: CacheEntry<unknown> = blank()
 const dsmAlerts: CacheEntry<unknown> = blank()
-const radarMapState: CacheEntry<unknown> = blank()
+const ruTgAlerts: CacheEntry<{ alerts: unknown[]; sources: unknown[]; messageCount: number }> =
+  blank()
 
 function blank<T>(): CacheEntry<T> {
   return { ok: false, fetchedAt: null, lagMs: null, error: null, data: null }
@@ -231,15 +231,33 @@ async function refreshDsmAlerts(): Promise<CacheEntry<unknown>> {
   return dsmAlerts
 }
 
-async function refreshRadarMap(): Promise<CacheEntry<unknown>> {
+async function refreshRuTgAlerts() {
   const fresh =
-    radarMapState.ok &&
-    radarMapState.fetchedAt != null &&
-    Date.now() - radarMapState.fetchedAt < RADAR_CACHE_TTL_MS
-  if (!fresh) {
-    await refresh(radarMapState, `${RADAR_MAP}/api/state`)
+    ruTgAlerts.ok &&
+    ruTgAlerts.fetchedAt != null &&
+    Date.now() - ruTgAlerts.fetchedAt < RU_TG_CACHE_TTL_MS
+  if (fresh) return ruTgAlerts
+
+  const started = Date.now()
+  try {
+    const { fetchNahrStyleRuAlerts } = await import('../scripts/lib/nahrTgRuAlerts.mjs')
+    const data = await fetchNahrStyleRuAlerts()
+    ruTgAlerts.ok = true
+    ruTgAlerts.fetchedAt = Date.now()
+    ruTgAlerts.lagMs = Date.now() - started
+    ruTgAlerts.error = data.errors.length ? data.errors.join('; ') : null
+    ruTgAlerts.data = {
+      alerts: data.alerts,
+      sources: data.sources,
+      messageCount: data.messageCount,
+    }
+  } catch (err) {
+    ruTgAlerts.ok = false
+    ruTgAlerts.fetchedAt = Date.now()
+    ruTgAlerts.lagMs = Date.now() - started
+    ruTgAlerts.error = err instanceof Error ? err.message : String(err)
   }
-  return radarMapState
+  return ruTgAlerts
 }
 
 app.get('/api/dsm/alerts', async (c) => {
@@ -253,13 +271,13 @@ app.get('/api/dsm/alerts', async (c) => {
   })
 })
 
-app.get('/api/radar-map/state', async (c) => {
-  const entry = await refreshRadarMap()
+app.get('/api/ru-tg-alerts', async (c) => {
+  const entry = await refreshRuTgAlerts()
   if (!entry.data) {
     return c.json({ error: entry.error ?? 'not ready' }, 503)
   }
   return c.json({
-    ...(entry.data as object),
+    ...entry.data,
     cachedAt: entry.fetchedAt ? new Date(entry.fetchedAt).toISOString() : null,
   })
 })

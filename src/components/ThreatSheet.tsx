@@ -74,6 +74,9 @@ export function ThreatSheet({ threat, now, userLocation, onClose }: Props) {
 
   return (
     <aside className={`threat-sheet ${ended ? 'ended' : ''}`} aria-live="polite">
+      <div className="sheet-grab" aria-hidden>
+        <span />
+      </div>
       <div className="sheet-accent" style={{ background: accent }} />
       <div className="sheet-head">
         <div>

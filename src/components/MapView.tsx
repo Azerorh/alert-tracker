@@ -27,13 +27,11 @@ import {
   isEndedThreat,
   type DisplayThreat,
 } from '../lib/threatDisplay'
-import {
-  strikeIconKind,
-  type BurningRefinery,
-  type DsmStrike,
-} from '../lib/droneStrikeMap'
+import type { BurningRefinery, DsmStrike } from '../lib/droneStrikeMap'
 import type { RuAlertZone } from '../lib/ruAlerts'
+import { isOverRussia, setHostileAirspace } from '../lib/russiaPresence'
 import {
+  ABROAD_ICON_COLOR,
   FIRE_ICON_ID,
   iconIdForType,
   registerThreatIcons,
@@ -149,12 +147,23 @@ function buildThreatFeatures(
     const heading = courseDeg ?? predicted?.heading ?? 0
     const selected = threat.id === selectedId ? 1 : 0
     const nearby = !nearbyIds || nearbyIds.has(threat.id) ? 1 : 0
-    // NEPTUN/MAPA markers stay white (ended = gray variants).
-    const color = ended && threat.endKind ? endKindColor(threat.endKind) : meta.hex
+    // Live tracks over RF / occupied → same silhouettes, red. Ended stay gray.
+    const overRussia = !ended && !areaOnly && isOverRussia(lat, lon)
+    const color =
+      ended && threat.endKind
+        ? endKindColor(threat.endKind)
+        : overRussia
+          ? ABROAD_ICON_COLOR
+          : meta.hex
     const flying = !ended && !areaOnly && predicted?.flying ? 1 : 0
     const rotate = !ended && !areaOnly && courseDeg != null ? 1 : 0
     const isGroup = threat.type === 'uav' && !ended && (threat.count ?? 0) > 1
-    const icon = iconIdForType(threat.type, ended ? threat.endKind : null, false, isGroup)
+    const icon = iconIdForType(
+      threat.type,
+      ended ? threat.endKind : null,
+      overRussia,
+      isGroup,
+    )
 
     points.features.push({
       type: 'Feature',
@@ -200,7 +209,11 @@ function buildThreatFeatures(
         type: 'Feature',
         properties: {
           id: threat.id,
-          color: ended ? endKindColor('vanished') : meta.hex,
+          color: ended
+            ? endKindColor('vanished')
+            : overRussia
+              ? ABROAD_ICON_COLOR
+              : meta.hex,
         },
         geometry: { type: 'LineString', coordinates: coords },
       })
@@ -210,23 +223,21 @@ function buildThreatFeatures(
   return { points, trails }
 }
 
+/** All DSM RU hits (24h) → flame markers (reported impacts, not live tracks). */
 function buildDsmFeatures(strikes: DsmStrike[]): FeatureCollection<Point> {
   return {
     type: 'FeatureCollection',
-    features: strikes.map((s) => {
-      const kind = strikeIconKind(s.weapons)
-      return {
-        type: 'Feature' as const,
+    features: strikes.map((s) => ({
+      type: 'Feature' as const,
+      id: s.id,
+      properties: {
         id: s.id,
-        properties: {
-          id: s.id,
-          title: `${s.place || s.region} · ${s.date}`,
-          summary: s.summary,
-          icon: iconIdForType(kind, null, true),
-        },
-        geometry: { type: 'Point' as const, coordinates: [s.lon, s.lat] },
-      }
-    }),
+        title: `${s.place || s.region} · ${s.date}`,
+        summary: s.summary,
+        icon: FIRE_ICON_ID,
+      },
+      geometry: { type: 'Point' as const, coordinates: [s.lon, s.lat] },
+    })),
   }
 }
 
@@ -295,6 +306,7 @@ export function MapView({
   const prevRaionKeys = useRef(new Set<string>())
   const prevOblastKeys = useRef(new Set<string>())
   const prevRuAlertKeys = useRef(new Set<string>())
+  const prevTotAlertKeys = useRef(new Set<string>())
 
   useEffect(() => {
     selectedRef.current = selectedId
@@ -389,6 +401,8 @@ export function MapView({
           console.warn('Occupied territory layer unavailable', occErr)
         }
         if (cancelled) return
+
+        setHostileAirspace([russia, occupied])
 
         map.addSource(OCCUPIED_SOURCE, { type: 'geojson', data: occupied })
         map.addSource(RAIONS_SOURCE, { type: 'geojson', data: raions, promoteId: 'key' })
@@ -784,14 +798,14 @@ export function MapView({
               ['linear'],
               ['zoom'],
               4,
-              0.48,
+              0.55,
               8,
-              0.72,
+              0.85,
             ],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
           },
-          paint: { 'icon-opacity': 0.95 },
+          paint: { 'icon-opacity': 1 },
         })
 
         addLayerSafe({
@@ -917,20 +931,28 @@ export function MapView({
     if (!map || !ready) return
     if (!map.getSource(RAIONS_SOURCE) || !map.getSource(OBLASTS_SOURCE)) return
 
+    const totAlerts = ruAlerts.filter((a) => a.layer === 'ua-tot')
     const raionKeys = new Set(alerts.map((a) => a.key))
-    const oblastKeys = new Set(alertOblasts.map((a) => a.key))
+    const oblastKeys = new Set([
+      ...alertOblasts.map((a) => a.key),
+      ...totAlerts.map((a) => a.key),
+    ])
     const raionLevels = new Map(alerts.map((a) => [a.key, a.level ?? 'red']))
     const oblastLevels = new Map(alertOblasts.map((a) => [a.key, a.level ?? 'red']))
+    for (const a of totAlerts) oblastLevels.set(a.key, a.level === 'attention' ? 'yellow' : 'red')
 
     syncAlertStates(map, RAIONS_SOURCE, raionKeys, raionLevels, prevRaionKeys.current)
     syncAlertStates(map, OBLASTS_SOURCE, oblastKeys, oblastLevels, prevOblastKeys.current)
-  }, [alerts, alertOblasts, ready])
+    // Track TOT keys so a later empty ruAlerts poll still clears via oblastKeys merge.
+    prevTotAlertKeys.current = new Set(totAlerts.map((a) => a.key))
+  }, [alerts, alertOblasts, ruAlerts, ready])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
-    const keys = new Set(ruAlerts.map((a) => a.key))
-    const levels = new Map(ruAlerts.map((a) => [a.key, a.level]))
+    const ruOnly = ruAlerts.filter((a) => a.layer !== 'ua-tot')
+    const keys = new Set(ruOnly.map((a) => a.key))
+    const levels = new Map(ruOnly.map((a) => [a.key, a.level]))
     syncAlertStates(map, RUSSIA_OBLASTS_SOURCE, keys, levels, prevRuAlertKeys.current)
   }, [ruAlerts, ready])
 

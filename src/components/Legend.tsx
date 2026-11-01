@@ -18,7 +18,7 @@ export function Legend() {
       map.set(item.type, threatIconDataUrl(item.type, item.hex))
     }
     map.set('uav-group', threatIconDataUrl('uav', undefined, false, true))
-    map.set('dsm', threatIconDataUrl('uav', undefined, true))
+    map.set('over-ru', threatIconDataUrl('uav', undefined, true))
     map.set('fire', flameIconDataUrl())
     return map
   }, [])
@@ -50,12 +50,12 @@ export function Legend() {
           БпЛА · група
         </li>
         <li>
-          <img className="legend-icon" src={icons.get('dsm')} alt="" width={22} height={22} />
-          Удари по РФ (24 год)
+          <img className="legend-icon" src={icons.get('over-ru')} alt="" width={22} height={22} />
+          У повітрі над РФ
         </li>
         <li>
           <img className="legend-icon" src={icons.get('fire')} alt="" width={22} height={22} />
-          НПЗ / паливо (24 год)
+          Прильоти / НПЗ (24 год)
         </li>
         <li>
           <span className="legend-swatch russia-border" />

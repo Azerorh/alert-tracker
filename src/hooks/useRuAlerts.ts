@@ -5,8 +5,8 @@ import {
   type RuAlertZone,
 } from '../lib/ruAlerts'
 
-/** Snapshot on Pages refreshes ~hourly via Actions. */
-const POLL_MS = 5 * 60_000
+/** TG channels move fast; Pages snapshot is hourly fallback. */
+const POLL_MS = 60_000
 
 export function useRuAlerts() {
   const [alerts, setAlerts] = useState<RuAlertZone[]>([])

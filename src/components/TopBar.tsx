@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { threatsLabel, type ConnectionStatus } from '../lib/neptun'
 import { SourceStatus } from './SourceStatus'
 import { OblastWatchMenu } from './OblastWatchMenu'
@@ -61,8 +62,35 @@ export function TopBar({
   onClearOblasts,
   onRequestNotifyPermission,
 }: Props) {
+  const [menuOpen, setMenuOpen] = useState(false)
+
+  useEffect(() => {
+    const onResize = () => {
+      if (window.matchMedia('(min-width: 901px)').matches) setMenuOpen(false)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen])
+
+  const threatWord = threatsLabel(threatCount).replace(/^\d+\s/, '')
+  const nearLabel =
+    nearMe && nearbyCount != null
+      ? `Біля · ${nearbyCount}`
+      : nearMe
+        ? `Біля · ${nearMeRadiusKm} км`
+        : 'Біля мене'
+
   return (
-    <header className="topbar">
+    <header className={`topbar ${menuOpen ? 'menu-open' : ''}`}>
       <div className="brand-block">
         <div className="brand-mark" aria-hidden />
         <div>
@@ -71,61 +99,98 @@ export function TopBar({
         </div>
       </div>
 
-      <div className="topbar-center">
-        <div className="topbar-stats">
-          <div className={`status-pill status-${status}`}>
-            <span className="status-dot" />
-            {statusLabel(status)}
-          </div>
-          <div className="stat-chip">
-            <span className="stat-value">{threatCount}</span>
-            <span className="stat-label">
-              {nearMe && nearbyCount != null
-                ? `поблизу / ${threatsLabel(threatCount).replace(/^\d+\s/, '')}`
-                : threatsLabel(threatCount).replace(/^\d+\s/, '')}
-            </span>
-          </div>
-          <div className="stat-chip">
-            <span className="stat-value">{alertCount}</span>
-            <span className="stat-label">зон тривоги</span>
-          </div>
-          <div className="stat-chip muted">
-            <span className="stat-label">оновлено {relativeUpdated}</span>
-          </div>
-        </div>
-        <SourceStatus sources={sources} bffUp={bffUp} />
+      <div className={`status-pill status-${status} topbar-live`}>
+        <span className="status-dot" />
+        {statusLabel(status)}
       </div>
 
-      <div className="topbar-actions">
-        <OblastWatchMenu
-          oblasts={oblasts}
-          watched={watchedOblasts}
-          permission={notifyPermission}
-          onToggle={onToggleOblast}
-          onSelectAll={onSelectAllOblasts}
-          onClearAll={onClearOblasts}
-          onRequestPermission={onRequestNotifyPermission}
+      <button
+        type="button"
+        className={`topbar-menu-btn ${menuOpen ? 'active' : ''}`}
+        aria-expanded={menuOpen}
+        aria-controls="topbar-panel"
+        aria-label={menuOpen ? 'Закрити меню' : 'Відкрити меню'}
+        onClick={() => setMenuOpen((v) => !v)}
+      >
+        {menuOpen ? (
+          <span className="topbar-menu-close" aria-hidden>
+            ×
+          </span>
+        ) : (
+          <span className="topbar-menu-icon" aria-hidden />
+        )}
+      </button>
+
+      {menuOpen ? (
+        <button
+          type="button"
+          className="topbar-scrim"
+          aria-label="Закрити меню"
+          onClick={() => setMenuOpen(false)}
         />
-        <button
-          type="button"
-          className={`btn-locate ${nearMe ? 'active' : ''}`}
-          onClick={onToggleNearMe}
-          title={`Підсвітити загрози в радіусі ${nearMeRadiusKm} км`}
-        >
-          {nearMe
-            ? `Біля мене · ${nearMeRadiusKm} км${nearbyCount != null ? ` · ${nearbyCount}` : ''}`
-            : 'Біля мене'}
-        </button>
-        <button
-          type="button"
-          className="btn-locate"
-          onClick={onLocate}
-          disabled={locateBusy}
-          title="Показати моє місце на карті"
-        >
-          {locateBusy ? 'Шукаємо…' : 'Моє місце'}
-        </button>
-        {locateError ? <span className="locate-error">{locateError}</span> : null}
+      ) : null}
+
+      <div className="topbar-panel" id="topbar-panel">
+        <div className="topbar-center">
+          <div className="topbar-stats">
+            <div className={`status-pill status-${status} topbar-live-desktop`}>
+              <span className="status-dot" />
+              {statusLabel(status)}
+            </div>
+            <div className="stat-chip">
+              <span className="stat-value">{threatCount}</span>
+              <span className="stat-label">
+                {nearMe && nearbyCount != null
+                  ? `поблизу / ${threatWord}`
+                  : threatWord}
+              </span>
+            </div>
+            <div className="stat-chip">
+              <span className="stat-value">{alertCount}</span>
+              <span className="stat-label">зон тривоги</span>
+            </div>
+            <div className="stat-chip muted">
+              <span className="stat-label">оновлено {relativeUpdated}</span>
+            </div>
+          </div>
+          <SourceStatus sources={sources} bffUp={bffUp} />
+        </div>
+
+        <div className="topbar-actions">
+          <OblastWatchMenu
+            oblasts={oblasts}
+            watched={watchedOblasts}
+            permission={notifyPermission}
+            onToggle={onToggleOblast}
+            onSelectAll={onSelectAllOblasts}
+            onClearAll={onClearOblasts}
+            onRequestPermission={onRequestNotifyPermission}
+          />
+          <button
+            type="button"
+            className={`btn-locate ${nearMe ? 'active' : ''}`}
+            onClick={() => {
+              onToggleNearMe()
+              setMenuOpen(false)
+            }}
+            title={`Підсвітити загрози в радіусі ${nearMeRadiusKm} км`}
+          >
+            {nearLabel}
+          </button>
+          <button
+            type="button"
+            className="btn-locate"
+            onClick={() => {
+              onLocate()
+              setMenuOpen(false)
+            }}
+            disabled={locateBusy}
+            title="Показати моє місце на карті"
+          >
+            {locateBusy ? 'Шукаємо…' : 'Моє місце'}
+          </button>
+          {locateError ? <span className="locate-error">{locateError}</span> : null}
+        </div>
       </div>
     </header>
   )

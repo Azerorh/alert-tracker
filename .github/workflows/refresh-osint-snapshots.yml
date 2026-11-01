@@ -1,6 +1,6 @@
 name: Refresh OSINT snapshots
 
-# Keeps public/geo/*.json fresh for GitHub Pages (CORS blocks live RadarMap/DSM).
+# Keeps public/geo/*.json fresh for GitHub Pages (no BFF; RU alerts from TG channels).
 # Clients poll raw.githubusercontent.com; full site rebuild not required.
 
 on:

@@ -198,13 +198,13 @@ export default function App() {
           ) : null}
           {dsm.status === 'live' && (dsm.strikes.length > 0 || dsm.burning.length > 0) ? (
             <p className="track-hint">
-              Drone Strike Map (24 год): ударів {dsm.strikes.length}
+              Прильоти РФ (24 год): {dsm.strikes.length}
               {dsm.burning.length ? ` · НПЗ/паливо ${dsm.burning.length}` : ''}
             </p>
           ) : null}
           {ruAlerts.status === 'live' && ruAlerts.alerts.length > 0 ? (
             <p className="track-hint">
-              Тривоги РФ (RadarMap / DSM): {ruAlerts.alerts.length} регіонів
+              Тривоги РФ (TG / NAHR-джерела): {ruAlerts.alerts.length} регіонів
             </p>
           ) : null}
           {endedCount.shot_down + endedCount.vanished > 0 ? (
