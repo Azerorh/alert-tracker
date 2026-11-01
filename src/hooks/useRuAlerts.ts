@@ -5,8 +5,8 @@ import {
   type RuAlertZone,
 } from '../lib/ruAlerts'
 
-/** Snapshot on Pages refreshes ~every 10 min via Actions; poll a bit faster. */
-const POLL_MS = 90_000
+/** Snapshot on Pages refreshes ~hourly via Actions. */
+const POLL_MS = 5 * 60_000
 
 export function useRuAlerts() {
   const [alerts, setAlerts] = useState<RuAlertZone[]>([])

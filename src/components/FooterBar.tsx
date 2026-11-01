@@ -33,7 +33,7 @@ export function FooterBar() {
         <a href={RADAR_MAP_URL} target="_blank" rel="noreferrer">
           RadarMap
         </a>{' '}
-        (на Pages — снапшот ~10 хв)
+        (на Pages — снапшот ~1 год)
         {' · '}
         окупація:{' '}
         <a href={DEEPSTATE_ATTRIBUTION_URL} target="_blank" rel="noreferrer">
