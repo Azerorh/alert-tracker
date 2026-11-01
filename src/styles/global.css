@@ -331,9 +331,16 @@ a {
 
 .topbar-actions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
   gap: 6px;
+}
+
+.topbar-actions .locate-error {
+  flex: 1 0 100%;
+  text-align: right;
 }
 
 .oblast-watch {
