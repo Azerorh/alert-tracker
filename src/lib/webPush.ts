@@ -23,6 +23,12 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return out
 }
 
+/** Safari iOS is picky: needs a clean ArrayBuffer, not a Uint8Array view. */
+function vapidKeyBuffer(base64String: string): ArrayBuffer {
+  const bytes = urlBase64ToUint8Array(base64String)
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+}
+
 export function isPushConfigured(): boolean {
   return Boolean(PUSH_API_BASE)
 }
@@ -30,7 +36,9 @@ export function isPushConfigured(): boolean {
 export function isIosSafari(): boolean {
   if (typeof navigator === 'undefined') return false
   const ua = navigator.userAgent
-  const iOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  const iOS =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
   const webkit = /WebKit/.test(ua)
   return iOS && webkit
 }
@@ -38,7 +46,9 @@ export function isIosSafari(): boolean {
 export function isStandalonePwa(): boolean {
   if (typeof window === 'undefined') return false
   const mq = window.matchMedia?.('(display-mode: standalone)')?.matches
-  const iosStandalone = 'standalone' in navigator && Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
+  const iosStandalone =
+    'standalone' in navigator &&
+    Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
   return Boolean(mq || iosStandalone)
 }
 
@@ -47,7 +57,9 @@ export async function registerPushServiceWorker(): Promise<ServiceWorkerRegistra
   const base = import.meta.env.BASE_URL || '/'
   const swUrl = `${base}sw.js`.replace(/\/{2,}/g, '/').replace(':/', '://')
   try {
-    return await navigator.serviceWorker.register(swUrl, { scope: base })
+    const reg = await navigator.serviceWorker.register(swUrl, { scope: base })
+    await navigator.serviceWorker.ready
+    return reg
   } catch (err) {
     console.warn('SW register failed', err)
     return null
@@ -92,6 +104,7 @@ export async function syncPushSubscription(opts: {
   if (opts.permission === 'denied') return 'needs_permission'
   if (opts.permission !== 'granted') return 'needs_permission'
 
+  // iOS/iPadOS: Web Push only in a Home Screen web app (not Safari tab).
   if (isIosSafari() && !isStandalonePwa()) return 'needs_install'
 
   if (!opts.watched.length) {
@@ -121,7 +134,7 @@ export async function syncPushSubscription(opts: {
     if (!sub) {
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidKey) as BufferSource,
+        applicationServerKey: vapidKeyBuffer(vapidKey),
       })
     }
 
@@ -145,17 +158,17 @@ export async function syncPushSubscription(opts: {
 export function pushStatusLabel(status: PushSyncStatus): string | null {
   switch (status) {
     case 'active':
-      return 'Фон: увімкнено (навіть коли вкладка спить)'
+      return 'Фон: увімкнено на цьому пристрої'
     case 'needs_permission':
-      return 'Фон: потрібен дозвіл на сповіщення'
+      return 'Фон: натисніть «Дозволити сповіщення» нижче'
     case 'needs_install':
-      return 'Фон на iPhone: Спочатку «Додати на домашній екран», потім відкрийте з іконки'
+      return 'Фон на iPhone: Поділитися → На екран «Додому» → відкрити з іконки (не з Safari) → дозволити сповіщення'
     case 'syncing':
       return 'Фон: підключення…'
     case 'error':
-      return 'Фон: помилка підписки — спробуйте ще раз'
+      return 'Фон: помилка підписки (мережа / workers.dev). Спробуйте ще раз на Wi‑Fi або LTE'
     case 'unsupported':
-      return 'Фон: цей браузер не підтримує Web Push'
+      return 'Фон: цей браузер не підтримує Web Push (потрібен iOS 16.4+)'
     case 'disabled':
     default:
       return null
