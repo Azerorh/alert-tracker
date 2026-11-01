@@ -7,6 +7,7 @@ import {
   warspottingViewUrl,
   type GroundLoss,
 } from '../lib/warspotting'
+import { SheetChrome } from './SheetChrome'
 
 type Props = {
   loss: GroundLoss | null
@@ -61,21 +62,12 @@ export function GroundSheet({ loss, onClose }: Props) {
 
   return (
     <aside className="threat-sheet" aria-live="polite">
-      <div className="sheet-grab" aria-hidden>
-        <span />
-      </div>
-      <div className="sheet-accent" style={{ background: accent }} />
-      <div className="sheet-head">
-        <div>
-          <p className="sheet-kicker" style={{ color: accent }}>
-            {CATEGORY_UA[loss.category]} · {loss.status || 'втрата'}
-          </p>
-          <h2 className="sheet-title">{loss.model}</h2>
-        </div>
-        <button type="button" className="sheet-close" onClick={onClose} aria-label="Закрити">
-          ×
-        </button>
-      </div>
+      <SheetChrome
+        accent={accent}
+        kicker={`${CATEGORY_UA[loss.category]} · ${loss.status || 'втрата'}`}
+        title={loss.model}
+        onClose={onClose}
+      />
 
       {visiblePhotos.length > 0 ? (
         <div className="sheet-photos" aria-label="Фото підтвердження">

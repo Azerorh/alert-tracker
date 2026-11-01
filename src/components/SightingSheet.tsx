@@ -1,4 +1,5 @@
 import type { RfSighting } from '../lib/rfSightings'
+import { SheetChrome } from './SheetChrome'
 
 type Props = {
   sighting: RfSighting | null
@@ -22,21 +23,12 @@ export function SightingSheet({ sighting, onClose }: Props) {
 
   return (
     <aside className="threat-sheet" aria-live="polite">
-      <div className="sheet-grab" aria-hidden>
-        <span />
-      </div>
-      <div className="sheet-accent" style={{ background: '#f0b429' }} />
-      <div className="sheet-head">
-        <div>
-          <p className="sheet-kicker" style={{ color: '#f0b429' }}>
-            Сайтінг РФ · {CATEGORY_UA[sighting.category]}
-          </p>
-          <h2 className="sheet-title">{sighting.channelLabel}</h2>
-        </div>
-        <button type="button" className="sheet-close" onClick={onClose} aria-label="Закрити">
-          ×
-        </button>
-      </div>
+      <SheetChrome
+        accent="#f0b429"
+        kicker={`Сайтінг РФ · ${CATEGORY_UA[sighting.category]}`}
+        title={sighting.channelLabel}
+        onClose={onClose}
+      />
       <p className="sheet-explain">
         {fromGc
           ? 'Verified OSINT (GeoConfirmed), не live-колона. Геоприв’язана присутність / техніка РФ до 7 діб.'

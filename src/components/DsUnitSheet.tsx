@@ -1,5 +1,6 @@
 import type { DsUnit } from '../lib/dsUnits'
 import { DEEPSTATE_ATTRIBUTION_URL } from '../lib/neptun'
+import { SheetChrome } from './SheetChrome'
 
 type Props = {
   unit: DsUnit | null
@@ -11,21 +12,12 @@ export function DsUnitSheet({ unit, onClose }: Props) {
 
   return (
     <aside className="threat-sheet" aria-live="polite">
-      <div className="sheet-grab" aria-hidden>
-        <span />
-      </div>
-      <div className="sheet-accent" style={{ background: '#b91c1c' }} />
-      <div className="sheet-head">
-        <div>
-          <p className="sheet-kicker" style={{ color: '#f07167' }}>
-            Підрозділ РФ · DeepState
-          </p>
-          <h2 className="sheet-title">{unit.title}</h2>
-        </div>
-        <button type="button" className="sheet-close" onClick={onClose} aria-label="Закрити">
-          ×
-        </button>
-      </div>
+      <SheetChrome
+        accent="#b91c1c"
+        kicker="Підрозділ РФ · DeepState"
+        title={unit.title}
+        onClose={onClose}
+      />
       <p className="sheet-explain">
         Орієнтовна позиція з поточного зрізу DeepStateMap. Не live-трек і не підтвердження
         наявності всієї техніки підрозділу.

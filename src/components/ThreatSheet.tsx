@@ -13,6 +13,7 @@ import {
   isEndedThreat,
   type DisplayThreat,
 } from '../lib/threatDisplay'
+import { SheetChrome } from './SheetChrome'
 
 type Props = {
   threat: DisplayThreat | null
@@ -84,21 +85,7 @@ export function ThreatSheet({ threat, now, userLocation, onClose }: Props) {
 
   return (
     <aside className={`threat-sheet ${ended ? 'ended' : ''}`} aria-live="polite">
-      <div className="sheet-grab" aria-hidden>
-        <span />
-      </div>
-      <div className="sheet-accent" style={{ background: accent }} />
-      <div className="sheet-head">
-        <div>
-          <p className="sheet-kicker" style={{ color: accent }}>
-            {kicker}
-          </p>
-          <h2 className="sheet-title">{threat.title}</h2>
-        </div>
-        <button type="button" className="sheet-close" onClick={onClose} aria-label="Закрити">
-          ×
-        </button>
-      </div>
+      <SheetChrome accent={accent} kicker={kicker} title={threat.title} onClose={onClose} />
 
       <p className="sheet-explain">{threat.explanationShort}</p>
 
