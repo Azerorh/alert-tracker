@@ -125,6 +125,30 @@ const AIR_LAYER_IDS = [
   'ru-bpla-icon',
 ] as const
 
+/** OpenFreeMap default: latin translit + local script. Prefer Ukrainian only. */
+const UK_ONLY_TEXT_FIELD: maplibregl.ExpressionSpecification = [
+  'coalesce',
+  ['get', 'name:uk'],
+  ['get', 'name:nonlatin'],
+  ['get', 'name'],
+]
+
+function preferUkrainianBasemapLabels(map: MapLibreMap) {
+  const layers = map.getStyle().layers ?? []
+  for (const layer of layers) {
+    if (layer.type !== 'symbol') continue
+    // Keep motorway shields (M-06 etc.), not place names.
+    if (layer.id === 'highway_name_motorway') continue
+    const textField = layer.layout?.['text-field']
+    if (textField == null) continue
+    try {
+      map.setLayoutProperty(layer.id, 'text-field', UK_ONLY_TEXT_FIELD)
+    } catch (err) {
+      console.warn('label locale patch failed', layer.id, err)
+    }
+  }
+}
+
 const GROUND_LAYER_IDS = [
   'ground-halo',
   'ground-icon',
@@ -597,6 +621,8 @@ export function MapView({
 
     map.on('load', async () => {
       try {
+        preferUkrainianBasemapLabels(map)
+
         let raions: FeatureCollection = emptyPoints() as FeatureCollection
         let oblasts: FeatureCollection = emptyPoints() as FeatureCollection
         let occupied: FeatureCollection = emptyPoints() as FeatureCollection
