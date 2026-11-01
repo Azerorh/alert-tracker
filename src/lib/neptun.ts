@@ -40,6 +40,10 @@ export const DEEPSTATE_ATTRIBUTION_URL = 'https://deepstatemap.live/'
 const publicBase = import.meta.env.BASE_URL || '/'
 export const RAIONS_GEOJSON_URL = `${publicBase}geo/raions.geojson`
 export const OBLASTS_GEOJSON_URL = `${publicBase}geo/oblasts.geojson`
+/** Natural Earth 50m Russia outline (public domain), same-origin for Pages. */
+export const RUSSIA_OUTLINE_GEOJSON_URL = `${publicBase}geo/russia-outline.geojson`
+/** geoBoundaries RUS ADM1 simplified — oblast fills for RU alerts. */
+export const RUSSIA_OBLASTS_GEOJSON_URL = `${publicBase}geo/russia-oblasts.geojson`
 import occupiedGeoJsonUrl from '../data/occupied.geojson?url'
 
 /** Occupied territory polygons extracted from DeepStateMap (bundled URL). */

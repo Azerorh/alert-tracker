@@ -10,7 +10,8 @@ export type DisplayThreat = Threat & {
 }
 
 export const SHOT_DOWN_TTL_MS = 55_000
-export const VANISHED_TTL_MS = 30_000
+/** Keep vanished ghosts (icon + trail) for 3 minutes — NEPTUN/MAPA often flicker. */
+export const VANISHED_TTL_MS = 3 * 60_000
 
 export function isEndedThreat(t: DisplayThreat): boolean {
   return t.endKind === 'shot_down' || t.endKind === 'vanished'

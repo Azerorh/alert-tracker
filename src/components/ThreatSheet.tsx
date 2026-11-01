@@ -28,6 +28,8 @@ function confidenceLabel(level: string | undefined): string {
 }
 
 function precisionLabel(threat: DisplayThreat): string {
+  if (threat.id.startsWith('npz-')) return 'координати об’єкта (Drone Strike Map)'
+  if (threat.id.startsWith('dsm-')) return 'заявлена точка удару (не live-трек)'
   if (isEndedThreat(threat) && threat.endKind) {
     return threat.endKind === 'shot_down'
       ? 'остання відома точка · збито'
@@ -44,13 +46,26 @@ export function ThreatSheet({ threat, now, userLocation, onClose }: Props) {
   if (!threat) return null
 
   const meta = getTypeMeta(threat.type)
+  const isNpz = threat.id.startsWith('npz-')
+  const isDsm = threat.id.startsWith('dsm-') || isNpz
   const ended = isEndedThreat(threat)
   const areaOnly = Boolean(threat.areaOnly)
   const advisory = Boolean(threat.advisory)
-  const predicted = areaOnly || ended ? null : predict(threat, now)
+  const predicted = areaOnly || ended || isDsm ? null : predict(threat, now)
   const lat = predicted?.lat ?? threat.lat
   const lon = predicted?.lon ?? threat.lon
-  const accent = ended && threat.endKind ? endKindColor(threat.endKind) : meta.hex
+  const accent = isNpz
+    ? '#ff6a00'
+    : isDsm
+      ? '#ff3b3b'
+      : ended && threat.endKind
+        ? endKindColor(threat.endKind)
+        : meta.hex
+  const kicker = isNpz
+    ? 'НПЗ / паливо · нещодавній вогонь'
+    : isDsm
+      ? `Удар по РФ · ${meta.label}`
+      : `${meta.label}${ended && threat.endKind ? ` · ${endKindLabel(threat.endKind)}` : ''}${!ended && advisory ? ' · спостереження' : ''}${areaOnly ? ' · лише область' : ''}`
 
   const distance =
     userLocation && !areaOnly
@@ -63,10 +78,7 @@ export function ThreatSheet({ threat, now, userLocation, onClose }: Props) {
       <div className="sheet-head">
         <div>
           <p className="sheet-kicker" style={{ color: accent }}>
-            {meta.label}
-            {ended && threat.endKind ? ` · ${endKindLabel(threat.endKind)}` : ''}
-            {!ended && advisory ? ' · спостереження' : ''}
-            {areaOnly ? ' · лише область' : ''}
+            {kicker}
           </p>
           <h2 className="sheet-title">{threat.title}</h2>
         </div>
@@ -84,7 +96,7 @@ export function ThreatSheet({ threat, now, userLocation, onClose }: Props) {
             <dd>
               {threat.endKind === 'shot_down'
                 ? 'Позначено як збите (MAPA eliminated / підтвердження джерел). Маркер зникне за ~1 хв.'
-                : 'Зникло з живого трекінгу (немає оновлень або hit_target). Це не завжди = збито.'}
+                : 'Зникло з живого трекінгу (немає оновлень або hit_target). Іконка й трек лишаються ~3 хв — це не завжди = збито.'}
             </dd>
           </div>
         ) : null}
@@ -143,13 +155,15 @@ export function ThreatSheet({ threat, now, userLocation, onClose }: Props) {
         <div className="sheet-note">
           <dt>Важливо</dt>
           <dd>
-            {ended
-              ? 'Короткий слід для зрозумілості карти. Не є офіційним підтвердженням ППО.'
-              : areaOnly
-                ? 'Точної точки немає — джерела назвали лише регіон. Маркер у центрі області не є місцем БпЛА.'
-                : threat.positionQuality === 'mapa'
-                  ? 'Позицію підтягнуто з MAPA-треку (не радар). Між оновленнями — їхній прогноз, без подвійної екстраполяції.'
-                  : 'Це не військовий радар. Точка — з публічних звітів (місто/напрямок) + оцінка руху між оновленнями.'}
+            {isDsm
+              ? 'Дані Drone Strike Map (CC BY 4.0): заявлені події з відкритих джерел, не live-трек і не радар.'
+              : ended
+                ? 'Короткий слід для зрозумілості карти. Не є офіційним підтвердженням ППО.'
+                : areaOnly
+                  ? 'Точної точки немає — джерела назвали лише регіон. Маркер у центрі області не є місцем БпЛА.'
+                  : threat.positionQuality === 'mapa'
+                    ? 'Позицію підтягнуто з MAPA-треку (не радар). Між оновленнями — їхній прогноз, без подвійної екстраполяції.'
+                    : 'Це не військовий радар. Точка — з публічних звітів (місто/напрямок) + оцінка руху між оновленнями.'}
           </dd>
         </div>
       </dl>

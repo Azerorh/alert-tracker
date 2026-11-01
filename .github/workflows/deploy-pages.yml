@@ -24,10 +24,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Refresh Drone Strike Map snapshot
+        run: node scripts/refresh-dsm.mjs
+        continue-on-error: true
+      - name: Refresh RU alert regions snapshot
+        run: node scripts/refresh-ru-alerts.mjs
+        continue-on-error: true
       - name: Build
         run: npm run build
         env:
           VITE_BASE: /alert-tracker/
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

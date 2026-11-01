@@ -12,8 +12,12 @@ type CacheEntry<T> = {
 
 const NEPTUN = 'https://neptun.in.ua'
 const MAPA = 'https://mapa.ua/api/v1/current'
+const DSM = 'https://dronestrikemap.com'
+const RADAR_MAP = 'https://radar-map.ru'
 const PORT = Number(process.env.PORT || 8787)
 const HIDE_TRACKS = process.env.HIDE_TRACKS === '1'
+const DSM_CACHE_TTL_MS = 10 * 60_000
+const RADAR_CACHE_TTL_MS = 30_000
 
 const app = new Hono()
 app.use(
@@ -27,6 +31,10 @@ app.use(
 const neptunThreats: CacheEntry<unknown> = blank()
 const neptunAlerts: CacheEntry<unknown> = blank()
 const mapaCurrent: CacheEntry<unknown> = blank()
+const dsmDayCache = new Map<string, CacheEntry<unknown>>()
+const dsmSites: CacheEntry<unknown> = blank()
+const dsmAlerts: CacheEntry<unknown> = blank()
+const radarMapState: CacheEntry<unknown> = blank()
 
 function blank<T>(): CacheEntry<T> {
   return { ok: false, fetchedAt: null, lagMs: null, error: null, data: null }
@@ -156,6 +164,103 @@ app.get('/api/mapa/current', (c) => {
     cachedAt: mapaCurrent.fetchedAt
       ? new Date(mapaCurrent.fetchedAt).toISOString()
       : null,
+  })
+})
+
+async function refreshDsmDay(date: string): Promise<CacheEntry<unknown>> {
+  let entry = dsmDayCache.get(date)
+  if (!entry) {
+    entry = blank()
+    dsmDayCache.set(date, entry)
+  }
+  const fresh =
+    entry.ok &&
+    entry.fetchedAt != null &&
+    Date.now() - entry.fetchedAt < DSM_CACHE_TTL_MS
+  if (!fresh) {
+    await refresh(entry, `${DSM}/api/day/${date}`)
+  }
+  return entry
+}
+
+async function refreshDsmSites(): Promise<CacheEntry<unknown>> {
+  const fresh =
+    dsmSites.ok &&
+    dsmSites.fetchedAt != null &&
+    Date.now() - dsmSites.fetchedAt < DSM_CACHE_TTL_MS
+  if (!fresh) {
+    await refresh(dsmSites, `${DSM}/api/sites`)
+  }
+  return dsmSites
+}
+
+app.get('/api/dsm/day/:date', async (c) => {
+  const date = c.req.param('date')
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return c.json({ error: 'bad date' }, 400)
+  }
+  const entry = await refreshDsmDay(date)
+  if (!entry.data) {
+    return c.json({ error: entry.error ?? 'not ready' }, 503)
+  }
+  return c.json({
+    ...(entry.data as object),
+    cachedAt: entry.fetchedAt ? new Date(entry.fetchedAt).toISOString() : null,
+  })
+})
+
+app.get('/api/dsm/sites', async (c) => {
+  const entry = await refreshDsmSites()
+  if (!entry.data) {
+    return c.json({ error: entry.error ?? 'not ready' }, 503)
+  }
+  return c.json({
+    ...(entry.data as object),
+    cachedAt: entry.fetchedAt ? new Date(entry.fetchedAt).toISOString() : null,
+  })
+})
+
+async function refreshDsmAlerts(): Promise<CacheEntry<unknown>> {
+  const fresh =
+    dsmAlerts.ok &&
+    dsmAlerts.fetchedAt != null &&
+    Date.now() - dsmAlerts.fetchedAt < DSM_CACHE_TTL_MS
+  if (!fresh) {
+    await refresh(dsmAlerts, `${DSM}/api/alerts`)
+  }
+  return dsmAlerts
+}
+
+async function refreshRadarMap(): Promise<CacheEntry<unknown>> {
+  const fresh =
+    radarMapState.ok &&
+    radarMapState.fetchedAt != null &&
+    Date.now() - radarMapState.fetchedAt < RADAR_CACHE_TTL_MS
+  if (!fresh) {
+    await refresh(radarMapState, `${RADAR_MAP}/api/state`)
+  }
+  return radarMapState
+}
+
+app.get('/api/dsm/alerts', async (c) => {
+  const entry = await refreshDsmAlerts()
+  if (!entry.data) {
+    return c.json({ error: entry.error ?? 'not ready' }, 503)
+  }
+  return c.json({
+    ...(entry.data as object),
+    cachedAt: entry.fetchedAt ? new Date(entry.fetchedAt).toISOString() : null,
+  })
+})
+
+app.get('/api/radar-map/state', async (c) => {
+  const entry = await refreshRadarMap()
+  if (!entry.data) {
+    return c.json({ error: entry.error ?? 'not ready' }, 503)
+  }
+  return c.json({
+    ...(entry.data as object),
+    cachedAt: entry.fetchedAt ? new Date(entry.fetchedAt).toISOString() : null,
   })
 })
 

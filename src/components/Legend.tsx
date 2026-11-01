@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { THREAT_TYPES } from '../lib/neptun'
-import { threatIconDataUrl } from '../lib/threatIcons'
+import { flameIconDataUrl, threatIconDataUrl } from '../lib/threatIcons'
 
 const items = [
   THREAT_TYPES.uav,
@@ -17,6 +17,8 @@ export function Legend() {
     for (const item of items) {
       map.set(item.type, threatIconDataUrl(item.type, item.hex))
     }
+    map.set('dsm', threatIconDataUrl('uav', undefined, true))
+    map.set('fire', flameIconDataUrl())
     return map
   }, [])
 
@@ -37,8 +39,24 @@ export function Legend() {
           </li>
         ))}
         <li>
+          <img className="legend-icon" src={icons.get('dsm')} alt="" width={22} height={22} />
+          Удари по РФ (24 год)
+        </li>
+        <li>
+          <img className="legend-icon" src={icons.get('fire')} alt="" width={22} height={22} />
+          НПЗ / паливо (24 год)
+        </li>
+        <li>
+          <span className="legend-swatch russia-border" />
+          Кордон РФ
+        </li>
+        <li>
           <span className="legend-swatch alert" />
-          Зона тривоги
+          Зона тривоги (Україна)
+        </li>
+        <li>
+          <span className="legend-swatch ru-alert" />
+          Тривога / БПЛА в РФ
         </li>
         <li>
           <span className="legend-swatch occupied" />
@@ -54,7 +72,7 @@ export function Legend() {
         </li>
         <li>
           <span className="legend-swatch vanished" />
-          Зникло з треку
+          Зникло (~3 хв)
         </li>
       </ul>
     </div>

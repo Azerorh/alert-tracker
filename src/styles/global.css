@@ -618,6 +618,20 @@ a {
   background: rgba(232, 93, 76, 0.85);
 }
 
+.legend-swatch.russia-border {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: #ff4d4d;
+  box-shadow: none;
+}
+
+.legend-swatch.ru-alert {
+  border-radius: 3px;
+  background: rgba(232, 93, 76, 0.55);
+  box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.45);
+}
+
 .legend-swatch.occupied {
   border-radius: 3px;
   background: #8b0000;

@@ -132,7 +132,8 @@ export function useEnrichedThreats(threats: Threat[]): {
       )
     }
     for (const id of [...localTrails.current.keys()]) {
-      if (!seen.has(id)) localTrails.current.delete(id)
+      // Keep trails for vanished/shot ghosts still on the map.
+      if (!seen.has(id) && !ended.current.has(id)) localTrails.current.delete(id)
     }
   }, [threats])
 
@@ -195,8 +196,8 @@ export function useEnrichedThreats(threats: Threat[]): {
     const liveById = new Map(live.map((t) => [t.id, t]))
     for (const t of live) lastLive.current.set(t.id, t)
 
-    // If a previously-ended track is actively matched again, revive it.
-    for (const [id] of assignments) {
+    // Revive if the track is live again (NEPTUN and/or MAPA) — avoid 3‑min ghost blocking a return.
+    for (const id of liveById.keys()) {
       if (ended.current.has(id)) ended.current.delete(id)
     }
 
@@ -272,6 +273,7 @@ export function useEnrichedThreats(threats: Threat[]): {
         ended.current.delete(id)
         stickyMapa.current.delete(id)
         lastLive.current.delete(id)
+        localTrails.current.delete(id)
       }
     }
 

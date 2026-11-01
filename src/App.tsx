@@ -9,6 +9,9 @@ import { WatchToasts } from './components/WatchToasts'
 import { useEnrichedThreats } from './hooks/useEnrichedThreats'
 import { useNeptun } from './hooks/useNeptun'
 import { useNow } from './hooks/useNow'
+import { useDroneStrikeLayer } from './hooks/useDroneStrikeLayer'
+import { useRuAlerts } from './hooks/useRuAlerts'
+import { findDsmDisplayThreat } from './lib/droneStrikeMap'
 import { useOblastWatch } from './hooks/useOblastWatch'
 import { useSourceStatus } from './hooks/useSourceStatus'
 import {
@@ -33,6 +36,8 @@ export default function App() {
   const { status: sourceStatus, available: bffUp } = useSourceStatus()
   const now = useNow(true)
   const oblastWatch = useOblastWatch(enrichedThreats, now)
+  const dsm = useDroneStrikeLayer()
+  const ruAlerts = useRuAlerts()
   const [filter, setFilter] = useState<UiFilterKey>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null)
@@ -121,10 +126,13 @@ export default function App() {
     return base
   }, [enrichedThreats, nearbyIds])
 
-  const selected: DisplayThreat | null = useMemo(
-    () => enrichedThreats.find((t) => t.id === selectedId) ?? null,
-    [enrichedThreats, selectedId],
-  )
+  const selected: DisplayThreat | null = useMemo(() => {
+    if (!selectedId) return null
+    return (
+      enrichedThreats.find((t) => t.id === selectedId) ??
+      findDsmDisplayThreat(selectedId, dsm.strikes, dsm.burning)
+    )
+  }, [enrichedThreats, selectedId, dsm.strikes, dsm.burning])
 
   const activeLinkedPool = enrichedThreats.filter((t) => isActiveTrack(t)).length
 
@@ -175,6 +183,9 @@ export default function App() {
           userLocation={userLocation}
           nearbyIds={nearbyIds}
           nearMeRadiusKm={nearMe ? NEAR_ME_RADIUS_KM : null}
+          dsmStrikes={dsm.strikes}
+          burningRefineries={dsm.burning}
+          ruAlerts={ruAlerts.alerts}
         />
 
         <div className="overlay-stack">
@@ -183,6 +194,17 @@ export default function App() {
           {mapaStatus === 'live' && mapaLinked > 0 ? (
             <p className="track-hint">
               Уточнення треків: MAPA 1↔1 · зв’язано {mapaLinked} з {activeLinkedPool}
+            </p>
+          ) : null}
+          {dsm.status === 'live' && (dsm.strikes.length > 0 || dsm.burning.length > 0) ? (
+            <p className="track-hint">
+              Drone Strike Map (24 год): ударів {dsm.strikes.length}
+              {dsm.burning.length ? ` · НПЗ/паливо ${dsm.burning.length}` : ''}
+            </p>
+          ) : null}
+          {ruAlerts.status === 'live' && ruAlerts.alerts.length > 0 ? (
+            <p className="track-hint">
+              Тривоги РФ (RadarMap / DSM): {ruAlerts.alerts.length} регіонів
             </p>
           ) : null}
           {endedCount.shot_down + endedCount.vanished > 0 ? (

@@ -14,10 +14,19 @@ export const THREAT_ICON_TYPES: ThreatType[] = [
   'unknown',
 ]
 
-export function iconIdForType(type: string, ended?: ThreatEndKind | '' | null): string {
+/** Red markers for Drone Strike Map (reported RU strikes). */
+export const ABROAD_ICON_COLOR = '#ff3b3b'
+export const FIRE_ICON_ID = 'npz-fire'
+
+export function iconIdForType(
+  type: string,
+  ended?: ThreatEndKind | '' | null,
+  abroad = false,
+): string {
   const t = (THREAT_ICON_TYPES as string[]).includes(type) ? type : 'unknown'
   if (ended === 'shot_down') return `threat-${t}-shot`
   if (ended === 'vanished') return `threat-${t}-vanished`
+  if (abroad) return `threat-${t}-abroad`
   return `threat-${t}`
 }
 
@@ -209,6 +218,7 @@ export function renderThreatIcon(
   type: ThreatType | string,
   _hex?: string,
   ended?: ThreatEndKind | null,
+  abroad = false,
 ): ImageData {
   const canvas = document.createElement('canvas')
   canvas.width = SIZE
@@ -216,20 +226,26 @@ export function renderThreatIcon(
   const ctx = canvas.getContext('2d')
   if (!ctx) return new ImageData(SIZE, SIZE)
 
-  // Soft dark disc behind white silhouette for contrast on any basemap
+  const liveFill = abroad ? ABROAD_ICON_COLOR : '#ffffff'
+  const ring = ended
+    ? endKindColor(ended)
+    : abroad
+      ? 'rgba(255, 59, 59, 0.55)'
+      : 'rgba(255, 255, 255, 0.35)'
+
+  // Soft dark disc behind silhouette for contrast on any basemap
   ctx.beginPath()
   ctx.arc(SIZE / 2, SIZE / 2, 30, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(11, 18, 32, 0.78)'
+  ctx.fillStyle = abroad ? 'rgba(40, 8, 8, 0.82)' : 'rgba(11, 18, 32, 0.78)'
   ctx.fill()
-  ctx.strokeStyle = ended ? endKindColor(ended) : 'rgba(255, 255, 255, 0.35)'
+  ctx.strokeStyle = ring
   ctx.lineWidth = 2
   ctx.stroke()
 
   const t = (THREAT_ICON_TYPES as string[]).includes(type)
     ? (type as ThreatType)
     : 'unknown'
-  // Live markers are white for readability; ended keep muted gray.
-  const fill = ended ? endKindColor(ended) : '#ffffff'
+  const fill = ended ? endKindColor(ended) : liveFill
   void _hex
   if (ended) ctx.globalAlpha = ended === 'vanished' ? 0.55 : 0.8
   drawSilhouette(ctx, t, fill)
@@ -239,27 +255,86 @@ export function renderThreatIcon(
   return ctx.getImageData(0, 0, SIZE, SIZE)
 }
 
-/** Register all live + ended variants on a MapLibre map. */
+function renderFlameIcon(): ImageData {
+  const canvas = document.createElement('canvas')
+  canvas.width = SIZE
+  canvas.height = SIZE
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return new ImageData(SIZE, SIZE)
+  const cx = SIZE / 2
+  const cy = SIZE / 2
+
+  ctx.beginPath()
+  ctx.arc(cx, cy, 30, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(40, 12, 4, 0.85)'
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(255, 140, 40, 0.65)'
+  ctx.lineWidth = 2
+  ctx.stroke()
+
+  // Outer flame
+  ctx.beginPath()
+  ctx.moveTo(cx, cy + 18)
+  ctx.bezierCurveTo(cx + 18, cy + 8, cx + 16, cy - 6, cx + 4, cy - 20)
+  ctx.bezierCurveTo(cx + 10, cy - 6, cx + 2, cy - 2, cx, cy - 22)
+  ctx.bezierCurveTo(cx - 2, cy - 2, cx - 10, cy - 6, cx - 4, cy - 20)
+  ctx.bezierCurveTo(cx - 16, cy - 6, cx - 18, cy + 8, cx, cy + 18)
+  ctx.closePath()
+  ctx.fillStyle = '#ff6a00'
+  ctx.fill()
+
+  // Inner core
+  ctx.beginPath()
+  ctx.moveTo(cx, cy + 12)
+  ctx.bezierCurveTo(cx + 8, cy + 4, cx + 6, cy - 4, cx, cy - 12)
+  ctx.bezierCurveTo(cx - 6, cy - 4, cx - 8, cy + 4, cx, cy + 12)
+  ctx.closePath()
+  ctx.fillStyle = '#ffd166'
+  ctx.fill()
+
+  return ctx.getImageData(0, 0, SIZE, SIZE)
+}
+
+/** Register all live + abroad + ended + flame variants on a MapLibre map. */
 export function registerThreatIcons(map: {
   hasImage: (id: string) => boolean
   addImage: (id: string, image: ImageData | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }, opts?: { pixelRatio?: number }) => void
 }): void {
   for (const type of THREAT_ICON_TYPES) {
-    const variants: Array<{ id: string; ended?: ThreatEndKind }> = [
+    const variants: Array<{ id: string; ended?: ThreatEndKind; abroad?: boolean }> = [
       { id: iconIdForType(type) },
+      { id: iconIdForType(type, null, true), abroad: true },
       { id: iconIdForType(type, 'shot_down'), ended: 'shot_down' },
       { id: iconIdForType(type, 'vanished'), ended: 'vanished' },
     ]
     for (const v of variants) {
       if (map.hasImage(v.id)) continue
-      const img = renderThreatIcon(type, undefined, v.ended)
+      const img = renderThreatIcon(type, undefined, v.ended, Boolean(v.abroad))
       map.addImage(v.id, img, { pixelRatio: 2 })
     }
   }
+  if (!map.hasImage(FIRE_ICON_ID)) {
+    map.addImage(FIRE_ICON_ID, renderFlameIcon(), { pixelRatio: 2 })
+  }
 }
 
-/** Data-URL for legend / DOM preview (same white silhouettes as the map). */
-export function threatIconDataUrl(type: ThreatType | string, _hex?: string): string {
+export function flameIconDataUrl(): string {
+  const canvas = document.createElement('canvas')
+  canvas.width = SIZE
+  canvas.height = SIZE
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return ''
+  const img = renderFlameIcon()
+  ctx.putImageData(img, 0, 0)
+  return canvas.toDataURL('image/png')
+}
+
+/** Data-URL for legend / DOM preview. */
+export function threatIconDataUrl(
+  type: ThreatType | string,
+  _hex?: string,
+  abroad = false,
+): string {
   const t = (THREAT_ICON_TYPES as string[]).includes(type)
     ? (type as ThreatType)
     : 'unknown'
@@ -272,8 +347,8 @@ export function threatIconDataUrl(type: ThreatType | string, _hex?: string): str
   ctx.clearRect(0, 0, SIZE, SIZE)
   ctx.beginPath()
   ctx.arc(SIZE / 2, SIZE / 2, 30, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(11, 18, 32, 0.78)'
+  ctx.fillStyle = abroad ? 'rgba(40, 8, 8, 0.82)' : 'rgba(11, 18, 32, 0.78)'
   ctx.fill()
-  drawSilhouette(ctx, t, '#ffffff')
+  drawSilhouette(ctx, t, abroad ? ABROAD_ICON_COLOR : '#ffffff')
   return canvas.toDataURL('image/png')
 }

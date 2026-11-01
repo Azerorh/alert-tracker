@@ -9,13 +9,13 @@ import {
   FLY_TO_ZOOM,
   INITIAL_ZOOM,
   MAX_ZOOM,
-  MIN_ZOOM,
   OBLASTS_GEOJSON_URL,
   OCCUPIED_GEOJSON_URL,
   RAIONS_GEOJSON_URL,
+  RUSSIA_OBLASTS_GEOJSON_URL,
+  RUSSIA_OUTLINE_GEOJSON_URL,
   UKRAINE_CENTER,
   UKRAINE_FIT_BOUNDS,
-  UKRAINE_MAX_BOUNDS,
   getTypeMeta,
   matchesUiFilter,
   predict,
@@ -27,7 +27,17 @@ import {
   isEndedThreat,
   type DisplayThreat,
 } from '../lib/threatDisplay'
-import { iconIdForType, registerThreatIcons } from '../lib/threatIcons'
+import {
+  strikeIconKind,
+  type BurningRefinery,
+  type DsmStrike,
+} from '../lib/droneStrikeMap'
+import type { RuAlertZone } from '../lib/ruAlerts'
+import {
+  FIRE_ICON_ID,
+  iconIdForType,
+  registerThreatIcons,
+} from '../lib/threatIcons'
 
 type Props = {
   threats: DisplayThreat[]
@@ -40,6 +50,9 @@ type Props = {
   userLocation: { lat: number; lon: number } | null
   nearbyIds: Set<string> | null
   nearMeRadiusKm: number | null
+  dsmStrikes: DsmStrike[]
+  burningRefineries: BurningRefinery[]
+  ruAlerts: RuAlertZone[]
 }
 
 const THREATS_SOURCE = 'threats'
@@ -49,6 +62,18 @@ const OBLASTS_SOURCE = 'oblasts'
 const OCCUPIED_SOURCE = 'occupied'
 const USER_SOURCE = 'user'
 const NEAR_SOURCE = 'near-me'
+const DSM_SOURCE = 'dsm-strikes'
+const NPZ_SOURCE = 'npz-fires'
+const RUSSIA_SOURCE = 'russia-outline'
+const RUSSIA_OBLASTS_SOURCE = 'russia-oblasts'
+
+/** Wide enough to pan across Ukraine + most of European / western Russia. */
+const MAP_MAX_BOUNDS: [[number, number], [number, number]] = [
+  [8, 36],
+  [95, 72],
+]
+/** Lower than NEPTUN’s MIN_ZOOM(4) so the map can show deep into Russia. */
+const MAP_MIN_ZOOM = 2.6
 
 function emptyPoints(): FeatureCollection<Point> {
   return { type: 'FeatureCollection', features: [] }
@@ -124,11 +149,11 @@ function buildThreatFeatures(
     const heading = courseDeg ?? predicted?.heading ?? 0
     const selected = threat.id === selectedId ? 1 : 0
     const nearby = !nearbyIds || nearbyIds.has(threat.id) ? 1 : 0
+    // NEPTUN/MAPA markers stay white (ended = gray variants).
     const color = ended && threat.endKind ? endKindColor(threat.endKind) : meta.hex
     const flying = !ended && !areaOnly && predicted?.flying ? 1 : 0
-    // Rotate silhouette whenever we have a real course (not only while dead-reckoning).
     const rotate = !ended && !areaOnly && courseDeg != null ? 1 : 0
-    const icon = iconIdForType(threat.type, ended ? threat.endKind : null)
+    const icon = iconIdForType(threat.type, ended ? threat.endKind : null, false)
 
     points.features.push({
       type: 'Feature',
@@ -158,7 +183,13 @@ function buildThreatFeatures(
       geometry: { type: 'Point', coordinates: [lon, lat] },
     })
 
-    if (!ended && !areaOnly && threat.trail && threat.trail.length > 1 && nearby) {
+    // Keep trail for vanished ghosts; shot_down stays icon-only (as before).
+    const showTrail =
+      !areaOnly &&
+      Boolean(threat.trail && threat.trail.length > 1) &&
+      nearby &&
+      (!ended || threat.endKind === 'vanished')
+    if (showTrail && threat.trail) {
       const coords = threat.trail.map((p) => [p.lon, p.lat] as [number, number])
       const last = coords[coords.length - 1]
       if (!last || Math.abs(last[0] - lon) > 1e-5 || Math.abs(last[1] - lat) > 1e-5) {
@@ -166,13 +197,53 @@ function buildThreatFeatures(
       }
       trails.features.push({
         type: 'Feature',
-        properties: { id: threat.id, color: meta.hex },
+        properties: {
+          id: threat.id,
+          color: ended ? endKindColor('vanished') : meta.hex,
+        },
         geometry: { type: 'LineString', coordinates: coords },
       })
     }
   }
 
   return { points, trails }
+}
+
+function buildDsmFeatures(strikes: DsmStrike[]): FeatureCollection<Point> {
+  return {
+    type: 'FeatureCollection',
+    features: strikes.map((s) => {
+      const kind = strikeIconKind(s.weapons)
+      return {
+        type: 'Feature' as const,
+        id: s.id,
+        properties: {
+          id: s.id,
+          title: `${s.place || s.region} · ${s.date}`,
+          summary: s.summary,
+          icon: iconIdForType(kind, null, true),
+        },
+        geometry: { type: 'Point' as const, coordinates: [s.lon, s.lat] },
+      }
+    }),
+  }
+}
+
+function buildNpzFeatures(sites: BurningRefinery[]): FeatureCollection<Point> {
+  return {
+    type: 'FeatureCollection',
+    features: sites.map((s) => ({
+      type: 'Feature' as const,
+      id: s.id,
+      properties: {
+        id: s.id,
+        title: s.name,
+        summary: `${s.region} · ${s.reason}`,
+        icon: FIRE_ICON_ID,
+      },
+      geometry: { type: 'Point' as const, coordinates: [s.lon, s.lat] },
+    })),
+  }
 }
 
 function syncAlertStates(
@@ -208,6 +279,9 @@ export function MapView({
   userLocation,
   nearbyIds,
   nearMeRadiusKm,
+  dsmStrikes,
+  burningRefineries,
+  ruAlerts,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -219,6 +293,7 @@ export function MapView({
   const nearbyIdsRef = useRef(nearbyIds)
   const prevRaionKeys = useRef(new Set<string>())
   const prevOblastKeys = useRef(new Set<string>())
+  const prevRuAlertKeys = useRef(new Set<string>())
 
   useEffect(() => {
     selectedRef.current = selectedId
@@ -248,9 +323,9 @@ export function MapView({
       style: 'https://tiles.openfreemap.org/styles/dark',
       center: UKRAINE_CENTER,
       zoom: INITIAL_ZOOM,
-      minZoom: MIN_ZOOM,
+      minZoom: MAP_MIN_ZOOM,
       maxZoom: MAX_ZOOM,
-      maxBounds: UKRAINE_MAX_BOUNDS,
+      maxBounds: MAP_MAX_BOUNDS,
       attributionControl: false,
     })
 
@@ -273,6 +348,8 @@ export function MapView({
         let raions: FeatureCollection = emptyPoints() as FeatureCollection
         let oblasts: FeatureCollection = emptyPoints() as FeatureCollection
         let occupied: FeatureCollection = emptyPoints() as FeatureCollection
+        let russia: FeatureCollection = emptyPoints() as FeatureCollection
+        let russiaOblasts: FeatureCollection = emptyPoints() as FeatureCollection
         try {
           ;[raions, oblasts] = await Promise.all([
             fetch(RAIONS_GEOJSON_URL).then(async (r) => {
@@ -286,6 +363,18 @@ export function MapView({
           ])
         } catch (geoErr) {
           console.warn('Alert polygons unavailable', geoErr)
+        }
+        try {
+          const [russiaRes, ruOblastsRes] = await Promise.all([
+            fetch(RUSSIA_OUTLINE_GEOJSON_URL),
+            fetch(RUSSIA_OBLASTS_GEOJSON_URL),
+          ])
+          if (russiaRes.ok) russia = (await russiaRes.json()) as FeatureCollection
+          if (ruOblastsRes.ok) {
+            russiaOblasts = (await ruOblastsRes.json()) as FeatureCollection
+          }
+        } catch (ruErr) {
+          console.warn('Russia polygons unavailable', ruErr)
         }
         try {
           const occupiedRes = await fetch(OCCUPIED_GEOJSON_URL)
@@ -303,10 +392,18 @@ export function MapView({
         map.addSource(OCCUPIED_SOURCE, { type: 'geojson', data: occupied })
         map.addSource(RAIONS_SOURCE, { type: 'geojson', data: raions, promoteId: 'key' })
         map.addSource(OBLASTS_SOURCE, { type: 'geojson', data: oblasts, promoteId: 'key' })
+        map.addSource(RUSSIA_SOURCE, { type: 'geojson', data: russia })
+        map.addSource(RUSSIA_OBLASTS_SOURCE, {
+          type: 'geojson',
+          data: russiaOblasts,
+          promoteId: 'key',
+        })
         map.addSource(THREATS_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(TRAILS_SOURCE, { type: 'geojson', data: emptyLines() })
         map.addSource(NEAR_SOURCE, { type: 'geojson', data: emptyPolygons() })
         map.addSource(USER_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(DSM_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(NPZ_SOURCE, { type: 'geojson', data: emptyPoints() })
 
         try {
           registerThreatIcons(map)
@@ -330,6 +427,62 @@ export function MapView({
           paint: {
             'fill-color': '#d7e4f4',
             'fill-opacity': 0.14,
+          },
+        })
+
+        addLayerSafe({
+          id: 'russia-oblasts-fill',
+          type: 'fill',
+          source: RUSSIA_OBLASTS_SOURCE,
+          paint: {
+            'fill-color': [
+              'case',
+              ['==', ['feature-state', 'level'], 'attention'],
+              '#f0b429',
+              '#e85d4c',
+            ],
+            'fill-opacity': ['case', ['==', ['feature-state', 'alert'], 1], 0.28, 0],
+          },
+        })
+
+        addLayerSafe({
+          id: 'russia-oblasts-line',
+          type: 'line',
+          source: RUSSIA_OBLASTS_SOURCE,
+          paint: {
+            'line-color': [
+              'case',
+              ['==', ['feature-state', 'alert'], 1],
+              '#ff6b6b',
+              'rgba(0,0,0,0)',
+            ],
+            'line-width': 1.1,
+            'line-opacity': 0.7,
+          },
+        })
+
+        addLayerSafe({
+          id: 'russia-outline',
+          type: 'line',
+          source: RUSSIA_SOURCE,
+          paint: {
+            'line-color': '#ff4d4d',
+            'line-width': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              2,
+              0.8,
+              5,
+              1.25,
+              8,
+              1.75,
+            ],
+            'line-opacity': 0.72,
+          },
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round',
           },
         })
 
@@ -450,8 +603,16 @@ export function MapView({
           source: TRAILS_SOURCE,
           paint: {
             'line-color': ['get', 'color'],
-            'line-width': 2,
-            'line-opacity': 0.55,
+            'line-width': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              5,
+              1.6,
+              10,
+              2.6,
+            ],
+            'line-opacity': 0.65,
           },
         })
 
@@ -612,6 +773,48 @@ export function MapView({
         })
 
         addLayerSafe({
+          id: 'dsm-icon',
+          type: 'symbol',
+          source: DSM_SOURCE,
+          layout: {
+            'icon-image': ['get', 'icon'],
+            'icon-size': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              0.48,
+              8,
+              0.72,
+            ],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+          paint: { 'icon-opacity': 0.95 },
+        })
+
+        addLayerSafe({
+          id: 'npz-icon',
+          type: 'symbol',
+          source: NPZ_SOURCE,
+          layout: {
+            'icon-image': ['get', 'icon'],
+            'icon-size': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              0.55,
+              8,
+              0.85,
+            ],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+          paint: { 'icon-opacity': 1 },
+        })
+
+        addLayerSafe({
           id: 'user-dot',
           type: 'circle',
           source: USER_SOURCE,
@@ -624,7 +827,9 @@ export function MapView({
         })
 
         map.on('click', (e) => {
-          const hitLayers = ['threat-icon', 'threat-halo'].filter((id) => map.getLayer(id))
+          const hitLayers = ['npz-icon', 'dsm-icon', 'threat-icon', 'threat-halo'].filter(
+            (id) => map.getLayer(id),
+          )
           const hits = hitLayers.length
             ? map.queryRenderedFeatures(e.point, { layers: hitLayers })
             : []
@@ -636,18 +841,14 @@ export function MapView({
           onSelectRef.current(null)
         })
 
-        map.on('mouseenter', 'threat-icon', () => {
-          map.getCanvas().style.cursor = 'pointer'
-        })
-        map.on('mouseleave', 'threat-icon', () => {
-          map.getCanvas().style.cursor = ''
-        })
-        map.on('mouseenter', 'threat-halo', () => {
-          map.getCanvas().style.cursor = 'pointer'
-        })
-        map.on('mouseleave', 'threat-halo', () => {
-          map.getCanvas().style.cursor = ''
-        })
+        for (const layerId of ['threat-icon', 'threat-halo', 'dsm-icon', 'npz-icon']) {
+          map.on('mouseenter', layerId, () => {
+            map.getCanvas().style.cursor = 'pointer'
+          })
+          map.on('mouseleave', layerId, () => {
+            map.getCanvas().style.cursor = ''
+          })
+        }
 
         setReady(true)
         ;(window as unknown as { __alertMap?: MapLibreMap }).__alertMap = map
@@ -699,6 +900,20 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    const src = map.getSource(DSM_SOURCE) as GeoJSONSource | undefined
+    src?.setData(buildDsmFeatures(dsmStrikes))
+  }, [dsmStrikes, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource(NPZ_SOURCE) as GeoJSONSource | undefined
+    src?.setData(buildNpzFeatures(burningRefineries))
+  }, [burningRefineries, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
     if (!map.getSource(RAIONS_SOURCE) || !map.getSource(OBLASTS_SOURCE)) return
 
     const raionKeys = new Set(alerts.map((a) => a.key))
@@ -709,6 +924,14 @@ export function MapView({
     syncAlertStates(map, RAIONS_SOURCE, raionKeys, raionLevels, prevRaionKeys.current)
     syncAlertStates(map, OBLASTS_SOURCE, oblastKeys, oblastLevels, prevOblastKeys.current)
   }, [alerts, alertOblasts, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const keys = new Set(ruAlerts.map((a) => a.key))
+    const levels = new Map(ruAlerts.map((a) => [a.key, a.level]))
+    syncAlertStates(map, RUSSIA_OBLASTS_SOURCE, keys, levels, prevRuAlertKeys.current)
+  }, [ruAlerts, ready])
 
   useEffect(() => {
     const map = mapRef.current
@@ -758,14 +981,33 @@ export function MapView({
     const map = mapRef.current
     if (!map || !selectedId) return
     const threat = threats.find((t) => t.id === selectedId)
-    if (!threat || threat.areaOnly) return
-    const p = predict(threat, Date.now())
-    map.easeTo({
-      center: [p.lon, p.lat],
-      zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
-      duration: 650,
-    })
-  }, [selectedId])
+    if (threat && !threat.areaOnly) {
+      const p = predict(threat, Date.now())
+      map.easeTo({
+        center: [p.lon, p.lat],
+        zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
+        duration: 650,
+      })
+      return
+    }
+    const strike = dsmStrikes.find((s) => s.id === selectedId)
+    if (strike) {
+      map.easeTo({
+        center: [strike.lon, strike.lat],
+        zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
+        duration: 650,
+      })
+      return
+    }
+    const site = burningRefineries.find((s) => s.id === selectedId)
+    if (site) {
+      map.easeTo({
+        center: [site.lon, site.lat],
+        zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
+        duration: 650,
+      })
+    }
+  }, [selectedId, threats, dsmStrikes, burningRefineries])
 
   return <div className="map-root" ref={containerRef} role="presentation" />
 }
