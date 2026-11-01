@@ -782,8 +782,14 @@ a {
 .sheet-head {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
   gap: 12px;
   padding: 14px 16px 0;
+}
+
+.sheet-head > :first-child {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .sheet-kicker {
@@ -799,18 +805,22 @@ a {
   font-size: 1.2rem;
   letter-spacing: -0.03em;
   line-height: 1.2;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .sheet-close {
   width: 34px;
   height: 34px;
+  flex: 0 0 auto;
   border-radius: 10px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(12, 18, 32, 0.92);
   color: var(--text);
   cursor: pointer;
   font-size: 1.25rem;
   line-height: 1;
+  touch-action: manipulation;
 }
 
 .sheet-photos {
@@ -1190,12 +1200,17 @@ a {
     right: 0;
     bottom: 0;
     width: auto;
+    max-width: 100%;
     max-height: min(58vh, 520px);
     border-radius: 22px 22px 0 0;
     border-bottom: 0;
     display: flex;
     flex-direction: column;
     padding-bottom: var(--safe-bottom);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     animation: sheet-up 260ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
@@ -1212,10 +1227,21 @@ a {
 
   .sheet-grab {
     display: flex;
+    flex-shrink: 0;
+  }
+
+  .sheet-accent {
+    flex-shrink: 0;
   }
 
   .sheet-head {
-    padding-top: 8px;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    flex-shrink: 0;
+    padding: 8px 12px 10px 16px;
+    background: rgba(12, 18, 32, 0.96);
+    backdrop-filter: blur(12px);
   }
 
   .sheet-title {
@@ -1223,14 +1249,18 @@ a {
   }
 
   .sheet-close {
-    width: 40px;
-    height: 40px;
+    width: 44px;
+    height: 44px;
     border-radius: 12px;
+    margin-right: env(safe-area-inset-right, 0px);
+  }
+
+  .sheet-explain {
+    flex-shrink: 0;
   }
 
   .sheet-grid {
-    overflow: auto;
-    overscroll-behavior: contain;
+    overflow: visible;
     padding-bottom: calc(16px + var(--safe-bottom));
   }
 
