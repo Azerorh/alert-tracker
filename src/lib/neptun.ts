@@ -36,9 +36,10 @@ export type {
 export const NEPTUN_BASE = 'https://neptun.in.ua'
 export const NEPTUN_ATTRIBUTION_URL = 'https://neptun.in.ua/'
 export const DEEPSTATE_ATTRIBUTION_URL = 'https://deepstatemap.live/'
-/** Served same-origin — upstream GeoJSON has no CORS headers. */
-export const RAIONS_GEOJSON_URL = '/geo/raions.geojson'
-export const OBLASTS_GEOJSON_URL = '/geo/oblasts.geojson'
+/** Served same-origin — upstream GeoJSON has no CORS headers. Respect Vite `base` (GitHub Pages). */
+const publicBase = import.meta.env.BASE_URL || '/'
+export const RAIONS_GEOJSON_URL = `${publicBase}geo/raions.geojson`
+export const OBLASTS_GEOJSON_URL = `${publicBase}geo/oblasts.geojson`
 import occupiedGeoJsonUrl from '../data/occupied.geojson?url'
 
 /** Occupied territory polygons extracted from DeepStateMap (bundled URL). */

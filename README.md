@@ -11,6 +11,12 @@
 - Межі районів/областей: локальні GeoJSON у `public/geo/` (upstream без CORS)
 - Окуповані + сіра зона (статус невідомий): зріз з [DeepStateMap](https://deepstatemap.live/) (`public/geo/occupied.geojson`)
 
+## GitHub Pages
+
+Сайт: https://azerorh.github.io/alert-tracker/
+
+Деплой автоматичний з `main` (Actions → Deploy GitHub Pages). Без BFF: NEPTUN/MAPA йдуть з браузера напряму.
+
 ## Запуск
 
 ```bash
