@@ -67,85 +67,85 @@ export function GroundSheet({ loss, onClose }: Props) {
         kicker={`${CATEGORY_UA[loss.category]} · ${loss.status || 'втрата'}`}
         title={loss.model}
         onClose={onClose}
-      />
-
-      {visiblePhotos.length > 0 ? (
-        <div className="sheet-photos" aria-label="Фото підтвердження">
-          {visiblePhotos.map((src) => (
-            <a
-              key={src}
-              className="sheet-photo"
-              href={src}
-              target="_blank"
-              rel="noreferrer"
-              title="Відкрити фото"
-            >
-              <img
-                src={src}
-                alt="Фото підтвердження втрати"
-                loading="lazy"
-                referrerPolicy="no-referrer"
-                onError={() => setPhotoFailed((m) => ({ ...m, [src]: true }))}
-              />
-            </a>
-          ))}
-        </div>
-      ) : null}
-
-      <p className="sheet-explain">
-        {fromGc
-          ? 'Verified OSINT (GeoConfirmed): знищена / пошкоджена техніка РФ. Не live-позиція.'
-          : 'Задокументована втрата техніки (WarSpotting / OSINT-фото). Це не live-позиція колони й не підтвердження наявності піхоти.'}
-      </p>
-      <dl className="sheet-grid">
-        <div>
-          <dt>Місце</dt>
-          <dd>{loss.place || 'невідоме'}</dd>
-        </div>
-        <div>
-          <dt>Дата</dt>
-          <dd className="mono">{loss.date || '—'}</dd>
-        </div>
-        <div>
-          <dt>Тип</dt>
-          <dd>{loss.type}</dd>
-        </div>
-        {loss.unit ? (
-          <div>
-            <dt>Підрозділ</dt>
-            <dd>{loss.unit}</dd>
+      >
+        {visiblePhotos.length > 0 ? (
+          <div className="sheet-photos" aria-label="Фото підтвердження">
+            {visiblePhotos.map((src) => (
+              <a
+                key={src}
+                className="sheet-photo"
+                href={src}
+                target="_blank"
+                rel="noreferrer"
+                title="Відкрити фото"
+              >
+                <img
+                  src={src}
+                  alt="Фото підтвердження втрати"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  onError={() => setPhotoFailed((m) => ({ ...m, [src]: true }))}
+                />
+              </a>
+            ))}
           </div>
         ) : null}
-        <div>
-          <dt>Точність</dt>
-          <dd>
-            {loss.geoPrecision === 'place'
-              ? 'орієнтовно · населений пункт'
-              : fromGc
-                ? 'координати GeoConfirmed'
-                : 'координати WarSpotting'}
-          </dd>
-        </div>
-        <div>
-          <dt>Координати</dt>
-          <dd className="mono">
-            {loss.lat.toFixed(4)}, {loss.lon.toFixed(4)}
-          </dd>
-        </div>
-      </dl>
 
-      <div className="sheet-links">
-        {sources.map((href) => (
-          <a key={href} className="sheet-link" href={href} target="_blank" rel="noreferrer">
-            Джерело
-          </a>
-        ))}
-        {viewUrl ? (
-          <a className="sheet-link" href={viewUrl} target="_blank" rel="noreferrer">
-            {fromGc ? 'GeoConfirmed' : 'WarSpotting'}
-          </a>
-        ) : null}
-      </div>
+        <p className="sheet-explain">
+          {fromGc
+            ? 'Verified OSINT (GeoConfirmed): знищена / пошкоджена техніка РФ. Не live-позиція.'
+            : 'Задокументована втрата техніки (WarSpotting / OSINT-фото). Це не live-позиція колони й не підтвердження наявності піхоти.'}
+        </p>
+        <dl className="sheet-grid">
+          <div>
+            <dt>Місце</dt>
+            <dd>{loss.place || 'невідоме'}</dd>
+          </div>
+          <div>
+            <dt>Дата</dt>
+            <dd className="mono">{loss.date || '—'}</dd>
+          </div>
+          <div>
+            <dt>Тип</dt>
+            <dd>{loss.type}</dd>
+          </div>
+          {loss.unit ? (
+            <div>
+              <dt>Підрозділ</dt>
+              <dd>{loss.unit}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>Точність</dt>
+            <dd>
+              {loss.geoPrecision === 'place'
+                ? 'орієнтовно · населений пункт'
+                : fromGc
+                  ? 'координати GeoConfirmed'
+                  : 'координати WarSpotting'}
+            </dd>
+          </div>
+          <div>
+            <dt>Координати</dt>
+            <dd className="mono">
+              {loss.lat.toFixed(4)}, {loss.lon.toFixed(4)}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="sheet-links">
+          {sources.map((href) => (
+            <a key={href} className="sheet-link" href={href} target="_blank" rel="noreferrer">
+              Джерело
+            </a>
+          ))}
+          {viewUrl ? (
+            <a className="sheet-link" href={viewUrl} target="_blank" rel="noreferrer">
+              {fromGc ? 'GeoConfirmed' : 'WarSpotting'}
+            </a>
+          ) : null}
+        </div>
+      </SheetChrome>
     </aside>
   )
 }

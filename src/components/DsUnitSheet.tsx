@@ -17,30 +17,31 @@ export function DsUnitSheet({ unit, onClose }: Props) {
         kicker="Підрозділ РФ · DeepState"
         title={unit.title}
         onClose={onClose}
-      />
-      <p className="sheet-explain">
-        Орієнтовна позиція з поточного зрізу DeepStateMap. Не live-трек і не підтвердження
-        наявності всієї техніки підрозділу.
-      </p>
-      <dl className="sheet-grid">
-        <div>
-          <dt>Роль</dt>
-          <dd>
-            {unit.role === 'hq' ? 'штаб / обʼєднання' : unit.role === 'storm' ? 'штурм' : 'підрозділ'}
-          </dd>
+      >
+        <p className="sheet-explain">
+          Орієнтовна позиція з поточного зрізу DeepStateMap. Не live-трек і не підтвердження
+          наявності всієї техніки підрозділу.
+        </p>
+        <dl className="sheet-grid">
+          <div>
+            <dt>Роль</dt>
+            <dd>
+              {unit.role === 'hq' ? 'штаб / обʼєднання' : unit.role === 'storm' ? 'штурм' : 'підрозділ'}
+            </dd>
+          </div>
+          <div>
+            <dt>Координати</dt>
+            <dd className="mono">
+              {unit.lat.toFixed(4)}, {unit.lon.toFixed(4)}
+            </dd>
+          </div>
+        </dl>
+        <div className="sheet-links">
+          <a className="sheet-link" href={DEEPSTATE_ATTRIBUTION_URL} target="_blank" rel="noreferrer">
+            DeepStateMap
+          </a>
         </div>
-        <div>
-          <dt>Координати</dt>
-          <dd className="mono">
-            {unit.lat.toFixed(4)}, {unit.lon.toFixed(4)}
-          </dd>
-        </div>
-      </dl>
-      <div className="sheet-links">
-        <a className="sheet-link" href={DEEPSTATE_ATTRIBUTION_URL} target="_blank" rel="noreferrer">
-          DeepStateMap
-        </a>
-      </div>
+      </SheetChrome>
     </aside>
   )
 }
