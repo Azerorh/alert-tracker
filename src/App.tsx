@@ -409,24 +409,25 @@ export default function App() {
             <p className="track-hint">Не вдалося завантажити GeoConfirmed</p>
           ) : null}
         </div>
-
-        {mapMode === 'air' ? (
-          <ThreatSheet
-            threat={selected}
-            now={now}
-            userLocation={userLocation}
-            onClose={() => setSelectedId(null)}
-          />
-        ) : selectedSighting ? (
-          <SightingSheet sighting={selectedSighting} onClose={() => setSelectedId(null)} />
-        ) : selectedDsUnit ? (
-          <DsUnitSheet unit={selectedDsUnit} onClose={() => setSelectedId(null)} />
-        ) : (
-          <GroundSheet loss={selectedGround} onClose={() => setSelectedId(null)} />
-        )}
       </main>
 
       <FooterBar />
+
+      {/* Outside map-stage so width tracks .app-shell (not the inflated layout viewport). */}
+      {mapMode === 'air' ? (
+        <ThreatSheet
+          threat={selected}
+          now={now}
+          userLocation={userLocation}
+          onClose={() => setSelectedId(null)}
+        />
+      ) : selectedSighting ? (
+        <SightingSheet sighting={selectedSighting} onClose={() => setSelectedId(null)} />
+      ) : selectedDsUnit ? (
+        <DsUnitSheet unit={selectedDsUnit} onClose={() => setSelectedId(null)} />
+      ) : (
+        <GroundSheet loss={selectedGround} onClose={() => setSelectedId(null)} />
+      )}
     </div>
   )
 }

@@ -716,8 +716,9 @@ a {
 }
 
 .threat-sheet {
+  /* Absolute to .app-shell — avoids fixed+DevTools viewport mismatch that clips the X. */
   position: absolute;
-  z-index: 40;
+  z-index: 80;
   right: 14px;
   bottom: 14px;
   width: min(380px, calc(100% - 28px));
@@ -839,6 +840,8 @@ a {
   touch-action: manipulation;
   -webkit-appearance: none;
   appearance: none;
+  /* Never paint outside the sheet (DevTools / overflow clip). */
+  max-width: calc(100% - 16px);
 }
 
 .sheet-photos {
@@ -1214,8 +1217,8 @@ a {
   }
 
   .threat-sheet {
-    /* Fixed escapes parent overflow; chrome stays put, body scrolls. */
-    position: fixed;
+    /* Stay in .app-shell coordinates (client width), not position:fixed layout viewport. */
+    position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
