@@ -1,0 +1,805 @@
+import { useEffect, useRef, useState } from 'react'
+import maplibregl, {
+  type AddLayerObject,
+  type GeoJSONSource,
+  type Map as MapLibreMap,
+} from 'maplibre-gl'
+import type { FeatureCollection, LineString, Point } from 'geojson'
+import {
+  FLY_TO_ZOOM,
+  INITIAL_ZOOM,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  OBLASTS_GEOJSON_URL,
+  OCCUPIED_GEOJSON_URL,
+  RAIONS_GEOJSON_URL,
+  UKRAINE_CENTER,
+  UKRAINE_FIT_BOUNDS,
+  UKRAINE_MAX_BOUNDS,
+  getTypeMeta,
+  matchesUiFilter,
+  predict,
+  type AlertZone,
+  type UiFilterKey,
+} from '../lib/neptun'
+import {
+  endKindColor,
+  isEndedThreat,
+  type DisplayThreat,
+} from '../lib/threatDisplay'
+
+type Props = {
+  threats: DisplayThreat[]
+  alerts: AlertZone[]
+  alertOblasts: AlertZone[]
+  filter: UiFilterKey
+  selectedId: string | null
+  onSelect: (id: string | null) => void
+  locateToken: number
+  userLocation: { lat: number; lon: number } | null
+  nearbyIds: Set<string> | null
+  nearMeRadiusKm: number | null
+}
+
+const THREATS_SOURCE = 'threats'
+const TRAILS_SOURCE = 'trails'
+const RAIONS_SOURCE = 'raions'
+const OBLASTS_SOURCE = 'oblasts'
+const OCCUPIED_SOURCE = 'occupied'
+const USER_SOURCE = 'user'
+const NEAR_SOURCE = 'near-me'
+
+function emptyPoints(): FeatureCollection<Point> {
+  return { type: 'FeatureCollection', features: [] }
+}
+
+function emptyLines(): FeatureCollection<LineString> {
+  return { type: 'FeatureCollection', features: [] }
+}
+
+function emptyPolygons(): FeatureCollection {
+  return { type: 'FeatureCollection', features: [] }
+}
+
+/** Approximate geodesic circle for near-me radius ring. */
+function circlePolygon(lon: number, lat: number, radiusKm: number, steps = 64): FeatureCollection {
+  const coords: [number, number][] = []
+  const R = 6371
+  const lat1 = (lat * Math.PI) / 180
+  const lon1 = (lon * Math.PI) / 180
+  const angDist = radiusKm / R
+  for (let i = 0; i <= steps; i++) {
+    const bearing = (i / steps) * 2 * Math.PI
+    const lat2 = Math.asin(
+      Math.sin(lat1) * Math.cos(angDist) +
+        Math.cos(lat1) * Math.sin(angDist) * Math.cos(bearing),
+    )
+    const lon2 =
+      lon1 +
+      Math.atan2(
+        Math.sin(bearing) * Math.sin(angDist) * Math.cos(lat1),
+        Math.cos(angDist) - Math.sin(lat1) * Math.sin(lat2),
+      )
+    coords.push([(lon2 * 180) / Math.PI, (lat2 * 180) / Math.PI])
+  }
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'Polygon', coordinates: [coords] },
+      },
+    ],
+  }
+}
+
+function buildThreatFeatures(
+  threats: DisplayThreat[],
+  now: number,
+  filter: UiFilterKey,
+  selectedId: string | null,
+  nearbyIds: Set<string> | null,
+) {
+  const points: FeatureCollection<Point> = { type: 'FeatureCollection', features: [] }
+  const trails: FeatureCollection<LineString> = { type: 'FeatureCollection', features: [] }
+
+  for (const threat of threats) {
+    if (!matchesUiFilter(threat.type, filter)) continue
+    if (threat.status === 'resolved' && !isEndedThreat(threat)) continue
+
+    const ended = isEndedThreat(threat)
+    const endKind = threat.endKind ?? ''
+    const areaOnly = Boolean(threat.areaOnly)
+    const advisory = Boolean(threat.advisory)
+    const meta = getTypeMeta(threat.type)
+    const predicted = areaOnly || ended ? null : predict(threat, now)
+    const lat = predicted?.lat ?? threat.lat
+    const lon = predicted?.lon ?? threat.lon
+    const heading = predicted?.heading ?? threat.heading ?? 0
+    const selected = threat.id === selectedId ? 1 : 0
+    const nearby = !nearbyIds || nearbyIds.has(threat.id) ? 1 : 0
+    const color = ended && threat.endKind ? endKindColor(threat.endKind) : meta.hex
+
+    points.features.push({
+      type: 'Feature',
+      id: threat.id,
+      properties: {
+        id: threat.id,
+        type: threat.type,
+        title: threat.title,
+        color,
+        heading,
+        flying: !ended && predicted?.flying ? 1 : 0,
+        areaOnly: areaOnly ? 1 : 0,
+        advisory: advisory || ended ? 1 : 0,
+        selected,
+        nearby,
+        ended: ended ? 1 : 0,
+        endKind,
+        uncertaintyKm: ended
+          ? 3
+          : (threat.uncertaintyKm ??
+            (threat.positionQuality === 'confirmed' || threat.positionQuality === 'mapa' ? 5 : 10)),
+        priority: ended ? 0 : meta.priority,
+        approx: threat.positionQuality === 'approx' || areaOnly || ended ? 1 : 0,
+      },
+      geometry: { type: 'Point', coordinates: [lon, lat] },
+    })
+
+    if (!ended && !areaOnly && threat.trail && threat.trail.length > 1 && nearby) {
+      const coords = threat.trail.map((p) => [p.lon, p.lat] as [number, number])
+      const last = coords[coords.length - 1]
+      if (!last || Math.abs(last[0] - lon) > 1e-5 || Math.abs(last[1] - lat) > 1e-5) {
+        coords.push([lon, lat])
+      }
+      trails.features.push({
+        type: 'Feature',
+        properties: { id: threat.id, color: meta.hex },
+        geometry: { type: 'LineString', coordinates: coords },
+      })
+    }
+  }
+
+  return { points, trails }
+}
+
+function syncAlertStates(
+  map: MapLibreMap,
+  source: string,
+  nextKeys: Set<string>,
+  levelByKey: Map<string, string>,
+  prevKeys: Set<string>,
+) {
+  for (const key of prevKeys) {
+    if (!nextKeys.has(key)) {
+      map.setFeatureState({ source, id: key }, { alert: 0, level: '' })
+    }
+  }
+  for (const key of nextKeys) {
+    map.setFeatureState(
+      { source, id: key },
+      { alert: 1, level: levelByKey.get(key) ?? 'red' },
+    )
+  }
+  prevKeys.clear()
+  for (const key of nextKeys) prevKeys.add(key)
+}
+
+export function MapView({
+  threats,
+  alerts,
+  alertOblasts,
+  filter,
+  selectedId,
+  onSelect,
+  locateToken,
+  userLocation,
+  nearbyIds,
+  nearMeRadiusKm,
+}: Props) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<MapLibreMap | null>(null)
+  const [ready, setReady] = useState(false)
+  const selectedRef = useRef(selectedId)
+  const onSelectRef = useRef(onSelect)
+  const threatsRef = useRef(threats)
+  const filterRef = useRef(filter)
+  const nearbyIdsRef = useRef(nearbyIds)
+  const prevRaionKeys = useRef(new Set<string>())
+  const prevOblastKeys = useRef(new Set<string>())
+
+  useEffect(() => {
+    selectedRef.current = selectedId
+  }, [selectedId])
+
+  useEffect(() => {
+    onSelectRef.current = onSelect
+  }, [onSelect])
+
+  useEffect(() => {
+    threatsRef.current = threats
+  }, [threats])
+
+  useEffect(() => {
+    filterRef.current = filter
+  }, [filter])
+
+  useEffect(() => {
+    nearbyIdsRef.current = nearbyIds
+  }, [nearbyIds])
+
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return
+
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: 'https://tiles.openfreemap.org/styles/dark',
+      center: UKRAINE_CENTER,
+      zoom: INITIAL_ZOOM,
+      minZoom: MIN_ZOOM,
+      maxZoom: MAX_ZOOM,
+      maxBounds: UKRAINE_MAX_BOUNDS,
+      attributionControl: false,
+    })
+
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
+    map.addControl(
+      new maplibregl.AttributionControl({
+        compact: true,
+        customAttribution: '© OpenFreeMap · © OpenMapTiles · © OpenStreetMap',
+      }),
+      'bottom-left',
+    )
+
+    map.fitBounds(UKRAINE_FIT_BOUNDS, { padding: 48, duration: 0 })
+    mapRef.current = map
+
+    let cancelled = false
+
+    map.on('load', async () => {
+      try {
+        let raions: FeatureCollection = emptyPoints() as FeatureCollection
+        let oblasts: FeatureCollection = emptyPoints() as FeatureCollection
+        let occupied: FeatureCollection = emptyPoints() as FeatureCollection
+        try {
+          ;[raions, oblasts] = await Promise.all([
+            fetch(RAIONS_GEOJSON_URL).then(async (r) => {
+              if (!r.ok) throw new Error(`raions ${r.status}`)
+              return r.json() as Promise<FeatureCollection>
+            }),
+            fetch(OBLASTS_GEOJSON_URL).then(async (r) => {
+              if (!r.ok) throw new Error(`oblasts ${r.status}`)
+              return r.json() as Promise<FeatureCollection>
+            }),
+          ])
+        } catch (geoErr) {
+          console.warn('Alert polygons unavailable', geoErr)
+        }
+        try {
+          const occupiedRes = await fetch(OCCUPIED_GEOJSON_URL)
+          if (!occupiedRes.ok) throw new Error(`occupied ${occupiedRes.status}`)
+          const occupiedJson = (await occupiedRes.json()) as FeatureCollection
+          if (!Array.isArray(occupiedJson.features) || occupiedJson.features.length === 0) {
+            throw new Error('occupied geojson empty or invalid')
+          }
+          occupied = occupiedJson
+        } catch (occErr) {
+          console.warn('Occupied territory layer unavailable', occErr)
+        }
+        if (cancelled) return
+
+        map.addSource(OCCUPIED_SOURCE, { type: 'geojson', data: occupied })
+        map.addSource(RAIONS_SOURCE, { type: 'geojson', data: raions, promoteId: 'key' })
+        map.addSource(OBLASTS_SOURCE, { type: 'geojson', data: oblasts, promoteId: 'key' })
+        map.addSource(THREATS_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(TRAILS_SOURCE, { type: 'geojson', data: emptyLines() })
+        map.addSource(NEAR_SOURCE, { type: 'geojson', data: emptyPolygons() })
+        map.addSource(USER_SOURCE, { type: 'geojson', data: emptyPoints() })
+
+        const addLayerSafe = (layer: AddLayerObject) => {
+          try {
+            if (!map.getLayer(layer.id)) map.addLayer(layer)
+          } catch (err) {
+            console.error(`Failed to add layer ${layer.id}`, err)
+          }
+        }
+
+        // Soft lift so Ukraine reads brighter than the surrounding dark basemap.
+        addLayerSafe({
+          id: 'ukraine-land',
+          type: 'fill',
+          source: OBLASTS_SOURCE,
+          paint: {
+            'fill-color': '#d7e4f4',
+            'fill-opacity': 0.14,
+          },
+        })
+
+        addLayerSafe({
+          id: 'oblasts-fill',
+          type: 'fill',
+          source: OBLASTS_SOURCE,
+          paint: {
+            'fill-color': [
+              'case',
+              ['==', ['feature-state', 'level'], 'yellow'],
+              '#f0b429',
+              '#e85d4c',
+            ],
+            'fill-opacity': ['case', ['==', ['feature-state', 'alert'], 1], 0.18, 0],
+          },
+        })
+
+        addLayerSafe({
+          id: 'raions-fill',
+          type: 'fill',
+          source: RAIONS_SOURCE,
+          paint: {
+            'fill-color': [
+              'case',
+              ['==', ['feature-state', 'level'], 'yellow'],
+              '#f0b429',
+              '#e85d4c',
+            ],
+            'fill-opacity': ['case', ['==', ['feature-state', 'alert'], 1], 0.22, 0],
+          },
+        })
+
+        addLayerSafe({
+          id: 'oblasts-line',
+          type: 'line',
+          source: OBLASTS_SOURCE,
+          paint: {
+            'line-color': '#c5e8dc',
+            'line-opacity': 0.38,
+            'line-width': 1.2,
+          },
+        })
+
+        // DeepState gray / unknown control — under occupied so red wins overlaps
+        addLayerSafe({
+          id: 'unknown-fill',
+          type: 'fill',
+          source: OCCUPIED_SOURCE,
+          filter: ['==', ['get', 'kind'], 'unknown'],
+          paint: {
+            'fill-color': '#6b7280',
+            'fill-opacity': 0.42,
+          },
+        })
+
+        addLayerSafe({
+          id: 'unknown-outline',
+          type: 'line',
+          source: OCCUPIED_SOURCE,
+          filter: ['==', ['get', 'kind'], 'unknown'],
+          paint: {
+            'line-color': '#4b5563',
+            'line-width': 1,
+            'line-opacity': 0.75,
+          },
+        })
+
+        // DeepState occupied territory — above alert fills so Crimea/south stay visible
+        addLayerSafe({
+          id: 'occupied-fill',
+          type: 'fill',
+          source: OCCUPIED_SOURCE,
+          filter: ['any', ['==', ['get', 'kind'], 'occupied'], ['!', ['has', 'kind']]],
+          paint: {
+            'fill-color': '#8b0000',
+            'fill-opacity': 0.58,
+          },
+        })
+
+        addLayerSafe({
+          id: 'occupied-outline',
+          type: 'line',
+          source: OCCUPIED_SOURCE,
+          filter: ['any', ['==', ['get', 'kind'], 'occupied'], ['!', ['has', 'kind']]],
+          paint: {
+            'line-color': '#3d0000',
+            'line-width': 1.2,
+            'line-opacity': 0.9,
+          },
+        })
+
+        addLayerSafe({
+          id: 'near-me-fill',
+          type: 'fill',
+          source: NEAR_SOURCE,
+          paint: {
+            'fill-color': '#7dd3c0',
+            'fill-opacity': 0.06,
+          },
+        })
+
+        addLayerSafe({
+          id: 'near-me-line',
+          type: 'line',
+          source: NEAR_SOURCE,
+          paint: {
+            'line-color': '#7dd3c0',
+            'line-width': 1.5,
+            'line-opacity': 0.55,
+            'line-dasharray': [2, 1.5],
+          },
+        })
+
+        addLayerSafe({
+          id: 'trails-line',
+          type: 'line',
+          source: TRAILS_SOURCE,
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': 2,
+            'line-opacity': 0.55,
+          },
+        })
+
+        // Uncertainty halo ≈ report precision (city/corridor), not radar CEP
+        addLayerSafe({
+          id: 'threat-uncertainty',
+          type: 'circle',
+          source: THREATS_SOURCE,
+          filter: ['==', ['to-number', ['get', 'areaOnly']], 0],
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['exponential', 2],
+              ['zoom'],
+              5,
+              ['*', ['to-number', ['get', 'uncertaintyKm']], 1.1],
+              8,
+              ['*', ['to-number', ['get', 'uncertaintyKm']], 3.2],
+              11,
+              ['*', ['to-number', ['get', 'uncertaintyKm']], 9],
+            ],
+            'circle-color': ['get', 'color'],
+            'circle-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'nearby']], 0],
+              0.03,
+              ['==', ['to-number', ['get', 'approx']], 1],
+              0.14,
+              0.1,
+            ],
+            'circle-stroke-color': ['get', 'color'],
+            'circle-stroke-width': 1,
+            'circle-stroke-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'nearby']], 0],
+              0.08,
+              0.35,
+            ],
+          },
+        })
+
+        addLayerSafe({
+          id: 'threat-halo',
+          type: 'circle',
+          source: THREATS_SOURCE,
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              5,
+              ['case', ['==', ['to-number', ['get', 'areaOnly']], 1], 14, 10],
+              10,
+              ['case', ['==', ['to-number', ['get', 'areaOnly']], 1], 22, 16],
+            ],
+            'circle-color': ['get', 'color'],
+            'circle-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'nearby']], 0],
+              0.05,
+              ['==', ['to-number', ['get', 'advisory']], 1],
+              0.12,
+              ['==', ['to-number', ['get', 'areaOnly']], 1],
+              0.16,
+              0.28,
+            ],
+            'circle-blur': 0.55,
+          },
+        })
+
+        addLayerSafe({
+          id: 'threat-core',
+          type: 'circle',
+          source: THREATS_SOURCE,
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              5,
+              ['case', ['==', ['to-number', ['get', 'areaOnly']], 1], 4.5, 5.5],
+              10,
+              ['case', ['==', ['to-number', ['get', 'areaOnly']], 1], 6, 8],
+            ],
+            'circle-color': ['get', 'color'],
+            'circle-stroke-width': [
+              'case',
+              ['==', ['to-number', ['get', 'ended']], 1],
+              2.4,
+              ['==', ['to-number', ['get', 'selected']], 1],
+              3.2,
+              ['==', ['to-number', ['get', 'advisory']], 1],
+              1.2,
+              2.2,
+            ],
+            'circle-stroke-color': [
+              'case',
+              ['==', ['get', 'endKind'], 'shot_down'],
+              '#c5d0dc',
+              ['==', ['get', 'endKind'], 'vanished'],
+              '#9ca3af',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              '#ffffff',
+              ['==', ['to-number', ['get', 'advisory']], 1],
+              '#9aa6b8',
+              '#0b1220',
+            ],
+            'circle-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'ended']], 1],
+              0.72,
+              ['==', ['to-number', ['get', 'nearby']], 0],
+              0.22,
+              ['==', ['to-number', ['get', 'advisory']], 1],
+              0.6,
+              0.96,
+            ],
+          },
+        })
+
+        addLayerSafe({
+          id: 'threat-heading',
+          type: 'symbol',
+          source: THREATS_SOURCE,
+          filter: [
+            'all',
+            ['==', ['to-number', ['get', 'areaOnly']], 0],
+            ['==', ['to-number', ['get', 'flying']], 1],
+            ['==', ['to-number', ['get', 'nearby']], 1],
+            ['==', ['to-number', ['get', 'ended']], 0],
+          ],
+          layout: {
+            'text-field': '▲',
+            'text-size': 13,
+            'text-rotate': ['to-number', ['get', 'heading']],
+            'text-rotation-alignment': 'map',
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+            'text-offset': [0, -1.15],
+          },
+          paint: {
+            'text-color': ['get', 'color'],
+            'text-halo-color': '#0b1220',
+            'text-halo-width': 1.4,
+          },
+        })
+
+        addLayerSafe({
+          id: 'threat-ended-mark',
+          type: 'symbol',
+          source: THREATS_SOURCE,
+          filter: ['==', ['to-number', ['get', 'ended']], 1],
+          layout: {
+            'text-field': [
+              'case',
+              ['==', ['get', 'endKind'], 'shot_down'],
+              '✕',
+              '·',
+            ],
+            'text-size': [
+              'case',
+              ['==', ['get', 'endKind'], 'shot_down'],
+              14,
+              18,
+            ],
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
+          paint: {
+            'text-color': [
+              'case',
+              ['==', ['get', 'endKind'], 'shot_down'],
+              '#e8eef7',
+              '#9ca3af',
+            ],
+            'text-halo-color': '#0b1220',
+            'text-halo-width': 1.6,
+            'text-opacity': 0.95,
+          },
+        })
+
+        addLayerSafe({
+          id: 'threat-ended-label',
+          type: 'symbol',
+          source: THREATS_SOURCE,
+          filter: ['==', ['to-number', ['get', 'ended']], 1],
+          layout: {
+            'text-field': [
+              'case',
+              ['==', ['get', 'endKind'], 'shot_down'],
+              'Збито',
+              'Зникло',
+            ],
+            'text-size': 11,
+            'text-offset': [0, 1.35],
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
+          paint: {
+            'text-color': [
+              'case',
+              ['==', ['get', 'endKind'], 'shot_down'],
+              '#c5d0dc',
+              '#9ca3af',
+            ],
+            'text-halo-color': '#0b1220',
+            'text-halo-width': 1.4,
+            'text-opacity': 0.9,
+          },
+        })
+
+        addLayerSafe({
+          id: 'user-dot',
+          type: 'circle',
+          source: USER_SOURCE,
+          paint: {
+            'circle-radius': 6,
+            'circle-color': '#7dd3c0',
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#0b1220',
+          },
+        })
+
+        map.on('click', (e) => {
+          const hits = map.queryRenderedFeatures(e.point, {
+            layers: ['threat-core', 'threat-halo'],
+          })
+          const id = hits[0]?.properties?.id
+          if (typeof id === 'string') {
+            onSelectRef.current(id === selectedRef.current ? null : id)
+            return
+          }
+          onSelectRef.current(null)
+        })
+
+        map.on('mouseenter', 'threat-core', () => {
+          map.getCanvas().style.cursor = 'pointer'
+        })
+        map.on('mouseleave', 'threat-core', () => {
+          map.getCanvas().style.cursor = ''
+        })
+        map.on('mouseenter', 'threat-halo', () => {
+          map.getCanvas().style.cursor = 'pointer'
+        })
+        map.on('mouseleave', 'threat-halo', () => {
+          map.getCanvas().style.cursor = ''
+        })
+
+        setReady(true)
+        ;(window as unknown as { __alertMap?: MapLibreMap }).__alertMap = map
+      } catch (err) {
+        console.error('Map bootstrap failed', err)
+      }
+    })
+
+    return () => {
+      cancelled = true
+      setReady(false)
+      if (import.meta.env.DEV) {
+        delete (window as unknown as { __alertMap?: MapLibreMap }).__alertMap
+      }
+      map.remove()
+      mapRef.current = null
+    }
+  }, [])
+
+  // Smooth dead-reckoning on the map thread (~60fps), independent of React renders.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const srcPoints = map.getSource(THREATS_SOURCE) as GeoJSONSource | undefined
+    const srcTrails = map.getSource(TRAILS_SOURCE) as GeoJSONSource | undefined
+    if (!srcPoints || !srcTrails) return
+
+    let raf = 0
+    let lastPaint = 0
+    const paint = (ts: number) => {
+      if (ts - lastPaint >= 33) {
+        lastPaint = ts
+        const { points, trails } = buildThreatFeatures(
+          threatsRef.current,
+          Date.now(),
+          filterRef.current,
+          selectedRef.current,
+          nearbyIdsRef.current,
+        )
+        srcPoints.setData(points)
+        srcTrails.setData(trails)
+      }
+      raf = requestAnimationFrame(paint)
+    }
+    raf = requestAnimationFrame(paint)
+    return () => cancelAnimationFrame(raf)
+  }, [ready, threats, filter, selectedId, nearbyIds])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    if (!map.getSource(RAIONS_SOURCE) || !map.getSource(OBLASTS_SOURCE)) return
+
+    const raionKeys = new Set(alerts.map((a) => a.key))
+    const oblastKeys = new Set(alertOblasts.map((a) => a.key))
+    const raionLevels = new Map(alerts.map((a) => [a.key, a.level ?? 'red']))
+    const oblastLevels = new Map(alertOblasts.map((a) => [a.key, a.level ?? 'red']))
+
+    syncAlertStates(map, RAIONS_SOURCE, raionKeys, raionLevels, prevRaionKeys.current)
+    syncAlertStates(map, OBLASTS_SOURCE, oblastKeys, oblastLevels, prevOblastKeys.current)
+  }, [alerts, alertOblasts, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource(USER_SOURCE) as GeoJSONSource | undefined
+    const nearSrc = map.getSource(NEAR_SOURCE) as GeoJSONSource | undefined
+    if (!src) return
+    if (!userLocation) {
+      src.setData(emptyPoints())
+      nearSrc?.setData(emptyPolygons())
+      return
+    }
+    src.setData({
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          properties: {},
+          geometry: {
+            type: 'Point',
+            coordinates: [userLocation.lon, userLocation.lat],
+          },
+        },
+      ],
+    })
+    if (nearSrc) {
+      nearSrc.setData(
+        nearMeRadiusKm != null
+          ? circlePolygon(userLocation.lon, userLocation.lat, nearMeRadiusKm)
+          : emptyPolygons(),
+      )
+    }
+  }, [userLocation, nearMeRadiusKm, ready])
+
+  useEffect(() => {
+    if (!locateToken || !userLocation || !mapRef.current) return
+    const zoom = nearMeRadiusKm != null ? Math.max(mapRef.current.getZoom(), 7.2) : Math.max(mapRef.current.getZoom(), FLY_TO_ZOOM)
+    mapRef.current.flyTo({
+      center: [userLocation.lon, userLocation.lat],
+      zoom,
+      essential: true,
+      duration: 900,
+    })
+  }, [locateToken, userLocation, nearMeRadiusKm])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !selectedId) return
+    const threat = threats.find((t) => t.id === selectedId)
+    if (!threat || threat.areaOnly) return
+    const p = predict(threat, Date.now())
+    map.easeTo({
+      center: [p.lon, p.lat],
+      zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
+      duration: 650,
+    })
+  }, [selectedId])
+
+  return <div className="map-root" ref={containerRef} role="presentation" />
+}
