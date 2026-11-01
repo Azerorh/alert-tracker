@@ -22,7 +22,7 @@ function collectRings(geometry: Geometry | null | undefined) {
   }
 }
 
-/** Cache Russia outline (+ optional occupied) for sync point checks. */
+/** Cache Russia outline rings for sync point checks (not UA TOT). */
 export function setHostileAirspace(layers: FeatureCollection[]) {
   hostileRings = []
   for (const fc of layers) {

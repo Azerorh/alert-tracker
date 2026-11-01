@@ -11,7 +11,10 @@
     "preview": "vite preview",
     "refresh:occupied": "node scripts/refresh-occupied.mjs",
     "refresh:dsm": "node scripts/refresh-dsm.mjs",
-    "refresh:ru-alerts": "node scripts/refresh-ru-alerts.mjs"
+    "refresh:ru-alerts": "node scripts/refresh-ru-alerts.mjs",
+    "refresh:warspotting": "node scripts/refresh-warspotting.mjs",
+    "refresh:rf-sightings": "node scripts/refresh-rf-sightings.mjs",
+    "refresh:geoconfirmed-ground": "node scripts/refresh-geoconfirmed-ground.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",

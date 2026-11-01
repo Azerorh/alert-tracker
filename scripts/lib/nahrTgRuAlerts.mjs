@@ -3,6 +3,11 @@
  * (Купол / Локатор / ВРВ / Треугольник). Not their API (Cloudflare-protected).
  */
 
+import {
+  extractPlacesFromText,
+  loadPlaceIndex,
+} from './placeGazetteer.mjs'
+
 export const NAHR_TG_CHANNELS = [
   { id: 'kupolrussia', label: 'КУПОЛ РОСІЇ' },
   { id: 'locatorru', label: 'ЛОКАТОР РОСІЇ' },
@@ -271,18 +276,90 @@ function kindsFromText(text) {
   return kinds.length ? kinds : ['bpla']
 }
 
+/** Keys in first-mention order (longest matchers claim ranges first). */
 function extractKeys(text) {
-  const found = []
-  const used = new Set()
-  let rest = text
+  const hits = []
+  const usedKeys = new Set()
+  const ranges = []
   for (const m of MATCHERS) {
-    if (!m.re.test(rest)) continue
-    if (used.has(m.key)) continue
-    used.add(m.key)
-    found.push(m.key)
-    rest = rest.replace(m.re, ' ')
+    if (usedKeys.has(m.key)) continue
+    const match = m.re.exec(text)
+    m.re.lastIndex = 0
+    if (!match || match.index == null) continue
+    const start = match.index
+    const end = start + match[0].length
+    if (ranges.some(([s, e]) => start < e && end > s)) continue
+    usedKeys.add(m.key)
+    ranges.push([start, end])
+    hits.push({ key: m.key, index: start })
   }
-  return found
+  hits.sort((a, b) => a.index - b.index)
+  return hits.map((h) => h.key)
+}
+
+/** Compass cue → degrees clockwise from north (MapLibre icon-rotate). */
+function bearingFromText(text) {
+  const rules = [
+    [/северо[-\s]?восточ|на\s+северо[-\s]?восток/i, 45],
+    [/северо[-\s]?западн|на\s+северо[-\s]?запад/i, 315],
+    [/юго[-\s]?восточ|на\s+юго[-\s]?восток/i, 135],
+    [/юго[-\s]?западн|на\s+юго[-\s]?запад/i, 225],
+    [/(?:^|[^\p{L}])на\s+север(?![о\p{L}])/iu, 0],
+    [/(?:^|[^\p{L}])на\s+юг(?![о\p{L}])/iu, 180],
+    [/(?:^|[^\p{L}])на\s+восток(?!\p{L})/iu, 90],
+    [/(?:^|[^\p{L}])на\s+запад(?!\p{L})/iu, 270],
+    [/курс\s+на\s+север(?![о\p{L}])/iu, 0],
+    [/курс\s+на\s+юг(?![о\p{L}])/iu, 180],
+    [/курс\s+на\s+восток/iu, 90],
+    [/курс\s+на\s+запад/iu, 270],
+  ]
+  for (const [re, deg] of rules) {
+    if (re.test(text)) return deg
+  }
+  return null
+}
+
+/** Max gap between sequential oblast activations to form a cascade corridor. */
+const CASCADE_WINDOW_MS = 45 * 60_000
+
+/** Project a point along a compass bearing (approx km). */
+function destPoint(lat, lon, bearingDeg, km) {
+  const R = 6371
+  const δ = km / R
+  const θ = (bearingDeg * Math.PI) / 180
+  const φ1 = (lat * Math.PI) / 180
+  const λ1 = (lon * Math.PI) / 180
+  const φ2 = Math.asin(
+    Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ),
+  )
+  const λ2 =
+    λ1 +
+    Math.atan2(
+      Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2),
+    )
+  return {
+    lat: (φ2 * 180) / Math.PI,
+    lon: ((((λ2 * 180) / Math.PI + 540) % 360) - 180),
+  }
+}
+
+/**
+ * Build ordered waypoints from geocoded places; if one place + bearing, extend ~45 km.
+ * @returns {{ lat: number, lon: number, place?: string }[]}
+ */
+function pointsFromPlaces(places, bearingDeg) {
+  if (!places?.length) return []
+  const pts = places.map((p) => ({
+    lat: p.lat,
+    lon: p.lon,
+    place: p.place,
+  }))
+  if (pts.length === 1 && bearingDeg != null && Number.isFinite(bearingDeg)) {
+    const tip = destPoint(pts[0].lat, pts[0].lon, bearingDeg, 45)
+    pts.push({ lat: tip.lat, lon: tip.lon })
+  }
+  return pts
 }
 
 function isCancel(text) {
@@ -317,10 +394,18 @@ function isNoise(text) {
 
 /**
  * @param {{ channel: string, at: string | null, text: string }[]} messages
- * @returns {{ key: string, name: string, level: 'danger', kinds: string[], layer: 'ru' | 'ua-tot' }[]}
+ * @param {Array<{ name: string, lat: number, lon: number }> | null} [placeIndex]
+ * @returns {{
+ *   alerts: { key: string, name: string, level: 'danger', kinds: string[], layer: 'ru' | 'ua-tot', bearingDeg?: number | null, activatedAt?: string | null }[],
+ *   trajectories: { id: string, keys: string[], points: { lat: number, lon: number, place?: string }[], bearingDeg?: number | null, source: 'message' | 'cascade' | 'place' }[],
+ * }}
  */
-export function reduceTgMessagesToAlerts(messages) {
+export function reduceTgMessagesToAlerts(messages, placeIndex = null) {
   const active = new Map()
+  /** @type {{ id: string, keys: string[], points: { lat: number, lon: number, place?: string }[], bearingDeg: number | null, source: 'message' | 'place' }[]} */
+  const msgTrajectories = []
+  /** Place fixes kept while their oblast is still active (for cascade stitching). */
+  const placeFixes = []
   const ordered = [...messages].sort((a, b) =>
     String(a.at ?? '').localeCompare(String(b.at ?? '')),
   )
@@ -340,6 +425,13 @@ export function reduceTgMessagesToAlerts(messages) {
     // Bare oblast name lists (common after «отбой») must not re-arm the alert.
     // Real alerts always carry a cue: опасность / фиксации / пролёт / БПЛА…
     if (!isThreatCue(text)) continue
+
+    const bearingDeg = bearingFromText(text)
+    const at = msg.at ?? null
+    const ts = at ? Date.parse(at) : NaN
+    const places = placeIndex ? extractPlacesFromText(text, placeIndex) : []
+    const points = pointsFromPlaces(places, bearingDeg)
+
     for (const key of keys) {
       const prev = active.get(key)
       active.set(key, {
@@ -348,11 +440,131 @@ export function reduceTgMessagesToAlerts(messages) {
         level: 'danger',
         kinds: [...new Set([...(prev?.kinds ?? []), ...kinds])],
         layer: LAYER_BY_KEY[key] === 'ua-tot' ? 'ua-tot' : 'ru',
+        bearingDeg: bearingDeg ?? prev?.bearingDeg ?? null,
+        activatedAt: prev?.activatedAt ?? at,
+        activatedTs: Number.isFinite(prev?.activatedTs)
+          ? prev.activatedTs
+          : Number.isFinite(ts)
+            ? ts
+            : Date.now(),
+      })
+    }
+
+    if (points.length) {
+      for (const p of points) {
+        if (p.place) {
+          placeFixes.push({
+            ...p,
+            keys: [...keys],
+            ts: Number.isFinite(ts) ? ts : Date.now(),
+            bearingDeg,
+          })
+        }
+      }
+    }
+
+    // Multi-oblast corridor and/or place-level track (≥2 waypoints).
+    // Skip lone single-point fixes — they flood the map with dots/tips.
+    if (points.length >= 2 || (keys.length >= 2 && points.length === 0)) {
+      msgTrajectories.push({
+        id: `msg-${msg.channel}-${at ?? msgTrajectories.length}-${keys.join('>')}`,
+        keys: [...keys],
+        points,
+        bearingDeg,
+        source: points.length >= 2 ? 'place' : 'message',
       })
     }
   }
 
-  return [...active.values()]
+  const activeKeys = new Set(active.keys())
+  const trajectories = []
+  const seenChain = new Set()
+
+  for (const t of msgTrajectories) {
+    const live = t.keys.filter((k) => activeKeys.has(k))
+    if (!live.length) continue
+    // Keep place tracks even for a single live oblast; multi-key needs ≥2 live.
+    if (t.points.length < 2 && live.length < 2) continue
+    const sig = `${live.join('>')}|${t.points.map((p) => `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`).join('>')}`
+    if (seenChain.has(sig)) continue
+    seenChain.add(sig)
+    trajectories.push({
+      id: t.id,
+      keys: live,
+      points: t.points,
+      bearingDeg: t.bearingDeg,
+      source: t.source,
+    })
+  }
+
+  // One short place-chain from the latest fixes (avoid stitching the whole night).
+  const liveFixes = placeFixes
+    .filter((f) => f.keys.some((k) => activeKeys.has(k)))
+    .sort((a, b) => a.ts - b.ts)
+  if (liveFixes.length >= 2) {
+    const recent = liveFixes.slice(-4)
+    const points = []
+    for (const f of recent) {
+      const same = points.some(
+        (p) => Math.abs(p.lat - f.lat) < 0.05 && Math.abs(p.lon - f.lon) < 0.05,
+      )
+      if (!same) points.push({ lat: f.lat, lon: f.lon, place: f.place })
+    }
+    if (points.length >= 2) {
+      const keys = [
+        ...new Set(recent.flatMap((c) => c.keys).filter((k) => activeKeys.has(k))),
+      ]
+      const sig = `fixchain|${points.map((p) => `${p.lat.toFixed(2)},${p.lon.toFixed(2)}`).join('>')}`
+      if (!seenChain.has(sig)) {
+        seenChain.add(sig)
+        trajectories.push({
+          id: sig,
+          keys,
+          points,
+          bearingDeg: recent[recent.length - 1].bearingDeg ?? null,
+          source: 'place',
+        })
+      }
+    }
+  }
+
+  // Pairwise cascade only when we still have almost no place corridors.
+  const placeCount = trajectories.filter((t) => (t.points?.length ?? 0) >= 2).length
+  if (placeCount < 3) {
+    const byTime = [...active.values()]
+      .filter((a) => Number.isFinite(a.activatedTs) && a.key.startsWith('ru-'))
+      .sort((a, b) => a.activatedTs - b.activatedTs || a.key.localeCompare(b.key))
+
+    for (let i = 1; i < byTime.length; i++) {
+      const prev = byTime[i - 1]
+      const next = byTime[i]
+      const dt = next.activatedTs - prev.activatedTs
+      if (dt <= 0 || dt > CASCADE_WINDOW_MS) continue
+      const pair = [prev.key, next.key]
+      const sig = pair.join('>')
+      if (seenChain.has(sig)) continue
+      const coveredByMsg = trajectories.some((t) => {
+        const ia = t.keys.indexOf(prev.key)
+        const ib = t.keys.indexOf(next.key)
+        return ia >= 0 && ib > ia
+      })
+      if (coveredByMsg) continue
+      seenChain.add(sig)
+      trajectories.push({
+        id: `cascade-${sig}`,
+        keys: pair,
+        points: [],
+        bearingDeg: next.bearingDeg ?? prev.bearingDeg ?? null,
+        source: 'cascade',
+      })
+    }
+  }
+
+  const alerts = [...active.values()].map(
+    ({ activatedTs: _ts, ...rest }) => rest,
+  )
+
+  return { alerts, trajectories }
 }
 
 const TG_HEADERS = {
@@ -429,8 +641,16 @@ export async function fetchNahrStyleRuAlerts() {
   if (!messages.length) {
     throw new Error(`RU TG alerts failed: ${errors.join('; ') || 'empty'}`)
   }
+  let placeIndex = null
+  try {
+    placeIndex = await loadPlaceIndex()
+  } catch (err) {
+    errors.push(`gazetteer: ${err}`)
+  }
+  const { alerts, trajectories } = reduceTgMessagesToAlerts(messages, placeIndex)
   return {
-    alerts: reduceTgMessagesToAlerts(messages),
+    alerts,
+    trajectories,
     sources: NAHR_TG_CHANNELS,
     messageCount: messages.length,
     errors,

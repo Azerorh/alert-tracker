@@ -125,6 +125,47 @@ a {
   font-weight: 500;
 }
 
+.topbar-mode {
+  flex-shrink: 0;
+}
+
+.topbar-mode-mobile {
+  display: none;
+}
+
+.mode-switch {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: rgba(12, 18, 32, 0.88);
+  border: 1px solid var(--line);
+}
+
+.mode-switch-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.mode-switch-btn:hover {
+  color: var(--text);
+}
+
+.mode-switch-btn.active {
+  background: rgba(125, 211, 192, 0.18);
+  color: #d7f5ec;
+  box-shadow: inset 0 0 0 1px rgba(125, 211, 192, 0.35);
+}
+
 .topbar-center {
   display: flex;
   flex-direction: column;
@@ -573,6 +614,13 @@ a {
   backdrop-filter: blur(12px);
 }
 
+.legend-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
 .legend-title {
   margin: 0 0 8px;
   font-size: 0.72rem;
@@ -765,6 +813,48 @@ a {
   line-height: 1;
 }
 
+.sheet-photos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+  padding: 0 16px 4px;
+}
+
+.sheet-photo {
+  display: block;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #0a101c;
+  aspect-ratio: 16 / 10;
+}
+
+.sheet-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.sheet-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 16px 16px;
+}
+
+.sheet-link {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 650;
+  border-bottom: 1px solid rgba(125, 211, 192, 0.35);
+}
+
+.sheet-link:hover {
+  border-bottom-color: var(--accent);
+}
+
 .sheet-explain {
   margin: 10px 16px 0;
   color: var(--muted);
@@ -870,15 +960,29 @@ a {
   }
 
   .topbar > .brand-block,
+  .topbar > .topbar-mode,
   .topbar > .topbar-live,
   .topbar > .topbar-menu-btn {
     position: relative;
     z-index: 34;
   }
 
+  .topbar-mode {
+    margin-left: auto;
+  }
+
+  .topbar-mode .mode-switch-btn {
+    padding: 6px 10px;
+    font-size: 0.72rem;
+  }
+
+  .topbar-mode-mobile {
+    display: none;
+  }
+
   .topbar-live {
     display: inline-flex;
-    margin-left: auto;
+    margin-left: 0;
     padding: 6px 10px;
     font-size: 0.72rem;
   }

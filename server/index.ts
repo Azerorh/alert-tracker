@@ -17,6 +17,10 @@ const PORT = Number(process.env.PORT || 8787)
 const HIDE_TRACKS = process.env.HIDE_TRACKS === '1'
 const DSM_CACHE_TTL_MS = 10 * 60_000
 const RU_TG_CACHE_TTL_MS = 60_000
+const WARSPOTTING_TTL_MS = 15 * 60_000
+const WARSPOTTING_RECENT = 'https://ukr.warspotting.net/api/losses/russia/recent/'
+const RF_SIGHTINGS_TTL_MS = 5 * 60_000
+const GEOCONFIRMED_GROUND_TTL_MS = 30 * 60_000
 
 const app = new Hono()
 app.use(
@@ -33,8 +37,28 @@ const mapaCurrent: CacheEntry<unknown> = blank()
 const dsmDayCache = new Map<string, CacheEntry<unknown>>()
 const dsmSites: CacheEntry<unknown> = blank()
 const dsmAlerts: CacheEntry<unknown> = blank()
-const ruTgAlerts: CacheEntry<{ alerts: unknown[]; sources: unknown[]; messageCount: number }> =
+const ruTgAlerts: CacheEntry<{
+  alerts: unknown[]
+  trajectories: unknown[]
+  sources: unknown[]
+  messageCount: number
+}> =
   blank()
+const warspottingRecent: CacheEntry<unknown> = blank()
+const rfSightings: CacheEntry<{
+  sightings: unknown[]
+  sources: unknown[]
+  messageCount: number
+  errors: string[]
+  windowHours: number
+}> = blank()
+const geoConfirmedGround: CacheEntry<{
+  markers: unknown[]
+  source: string
+  windowHours: number
+  featureCount: number
+  errors: string[]
+}> = blank()
 
 function blank<T>(): CacheEntry<T> {
   return { ok: false, fetchedAt: null, lagMs: null, error: null, data: null }
@@ -248,6 +272,7 @@ async function refreshRuTgAlerts() {
     ruTgAlerts.error = data.errors.length ? data.errors.join('; ') : null
     ruTgAlerts.data = {
       alerts: data.alerts,
+      trajectories: data.trajectories ?? [],
       sources: data.sources,
       messageCount: data.messageCount,
     }
@@ -280,6 +305,312 @@ app.get('/api/ru-tg-alerts', async (c) => {
     ...entry.data,
     cachedAt: entry.fetchedAt ? new Date(entry.fetchedAt).toISOString() : null,
   })
+})
+
+async function refreshWarspotting() {
+  const fresh =
+    warspottingRecent.ok &&
+    warspottingRecent.fetchedAt != null &&
+    Date.now() - warspottingRecent.fetchedAt < WARSPOTTING_TTL_MS
+  if (fresh) return warspottingRecent
+  await refresh(warspottingRecent, WARSPOTTING_RECENT)
+  return warspottingRecent
+}
+
+app.get('/api/warspotting/recent', async (c) => {
+  const entry = await refreshWarspotting()
+  if (!entry.data) {
+    return c.json({ error: entry.error ?? 'not ready' }, 503)
+  }
+  return c.json({
+    ...(entry.data as object),
+    cachedAt: entry.fetchedAt ? new Date(entry.fetchedAt).toISOString() : null,
+  })
+})
+
+async function readRfSightingsSnapshotFile() {
+  try {
+    const { readFile } = await import('node:fs/promises')
+    const { join, dirname } = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const path = join(
+      dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'public',
+      'geo',
+      'rf-sightings.json',
+    )
+    const json = JSON.parse(await readFile(path, 'utf8')) as {
+      sightings?: unknown[]
+      sources?: unknown
+      messageCount?: number
+      errors?: string[]
+      windowHours?: number
+    }
+    if (!Array.isArray(json.sightings)) return null
+    return json
+  } catch {
+    return null
+  }
+}
+
+async function refreshRfSightings() {
+  const cachedCount = Array.isArray(rfSightings.data?.sightings)
+    ? rfSightings.data.sightings.length
+    : 0
+  const fresh =
+    rfSightings.ok &&
+    rfSightings.fetchedAt != null &&
+    Date.now() - rfSightings.fetchedAt < RF_SIGHTINGS_TTL_MS &&
+    // Don't keep serving a stale empty cache after pipeline updates.
+    cachedCount > 0
+  if (fresh) return rfSightings
+
+  const started = Date.now()
+  try {
+    // Bust Node ESM cache so channel/filter changes apply without full restart.
+    const mod = `../scripts/lib/rfGroundSightings.mjs?t=${Date.now()}`
+    const { fetchRfGroundSightings } = await import(mod)
+    const data = await fetchRfGroundSightings()
+    let sightings = data.sightings ?? []
+    if (!sightings.length) {
+      const snap = await readRfSightingsSnapshotFile()
+      if (snap?.sightings?.length) sightings = snap.sightings
+    }
+    rfSightings.ok = true
+    rfSightings.fetchedAt = Date.now()
+    rfSightings.lagMs = Date.now() - started
+    rfSightings.error = data.errors.length ? data.errors.join('; ') : null
+    rfSightings.data = {
+      sightings,
+      sources: data.sources,
+      messageCount: data.messageCount,
+      errors: data.errors,
+      windowHours: data.windowHours,
+    }
+  } catch (err) {
+    const snap = await readRfSightingsSnapshotFile()
+    if (snap?.sightings?.length) {
+      rfSightings.ok = true
+      rfSightings.fetchedAt = Date.now()
+      rfSightings.lagMs = Date.now() - started
+      rfSightings.error = err instanceof Error ? err.message : String(err)
+      rfSightings.data = {
+        sightings: snap.sightings,
+        sources: snap.sources,
+        messageCount: snap.messageCount ?? 0,
+        errors: snap.errors ?? [],
+        windowHours: snap.windowHours ?? 168,
+      }
+      return rfSightings
+    }
+    rfSightings.ok = false
+    rfSightings.fetchedAt = Date.now()
+    rfSightings.lagMs = Date.now() - started
+    rfSightings.error = err instanceof Error ? err.message : String(err)
+  }
+  return rfSightings
+}
+
+app.get('/api/rf-sightings', async (c) => {
+  const entry = await refreshRfSightings()
+  if (!entry.data) {
+    return c.json({ error: entry.error ?? 'not ready' }, 503)
+  }
+  return c.json({
+    ...entry.data,
+    cachedAt: entry.fetchedAt ? new Date(entry.fetchedAt).toISOString() : null,
+  })
+})
+
+async function readGeoConfirmedSnapshotFile() {
+  try {
+    const { readFile } = await import('node:fs/promises')
+    const { join, dirname } = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const path = join(
+      dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'public',
+      'geo',
+      'geoconfirmed-ground.json',
+    )
+    const json = JSON.parse(await readFile(path, 'utf8')) as {
+      markers?: unknown[]
+      source?: string
+      windowHours?: number
+      featureCount?: number
+      errors?: string[]
+    }
+    if (!Array.isArray(json.markers)) return null
+    return json
+  } catch {
+    return null
+  }
+}
+
+async function refreshGeoConfirmedGround() {
+  const cachedCount = Array.isArray(geoConfirmedGround.data?.markers)
+    ? geoConfirmedGround.data.markers.length
+    : 0
+  const fresh =
+    geoConfirmedGround.ok &&
+    geoConfirmedGround.fetchedAt != null &&
+    Date.now() - geoConfirmedGround.fetchedAt < GEOCONFIRMED_GROUND_TTL_MS &&
+    cachedCount > 0
+  if (fresh) return geoConfirmedGround
+
+  const started = Date.now()
+  try {
+    const mod = `../scripts/lib/geoConfirmedGround.mjs?t=${Date.now()}`
+    const { fetchGeoConfirmedGround } = await import(mod)
+    const data = await fetchGeoConfirmedGround()
+    let markers = data.markers ?? []
+    if (!markers.length) {
+      const snap = await readGeoConfirmedSnapshotFile()
+      if (snap?.markers?.length) markers = snap.markers
+    }
+    geoConfirmedGround.ok = true
+    geoConfirmedGround.fetchedAt = Date.now()
+    geoConfirmedGround.lagMs = Date.now() - started
+    geoConfirmedGround.error = data.detailErrors?.length
+      ? data.detailErrors.join('; ')
+      : null
+    geoConfirmedGround.data = {
+      markers,
+      source: 'geoconfirmed',
+      windowHours: data.windowHours,
+      featureCount: data.featureCount,
+      errors: data.detailErrors ?? [],
+    }
+  } catch (err) {
+    const snap = await readGeoConfirmedSnapshotFile()
+    if (snap?.markers?.length) {
+      geoConfirmedGround.ok = true
+      geoConfirmedGround.fetchedAt = Date.now()
+      geoConfirmedGround.lagMs = Date.now() - started
+      geoConfirmedGround.error = err instanceof Error ? err.message : String(err)
+      geoConfirmedGround.data = {
+        markers: snap.markers,
+        source: snap.source ?? 'geoconfirmed',
+        windowHours: snap.windowHours ?? 168,
+        featureCount: snap.featureCount ?? snap.markers.length,
+        errors: snap.errors ?? [],
+      }
+      return geoConfirmedGround
+    }
+    geoConfirmedGround.ok = false
+    geoConfirmedGround.fetchedAt = Date.now()
+    geoConfirmedGround.lagMs = Date.now() - started
+    geoConfirmedGround.error = err instanceof Error ? err.message : String(err)
+  }
+  return geoConfirmedGround
+}
+
+app.get('/api/geoconfirmed-ground', async (c) => {
+  const entry = await refreshGeoConfirmedGround()
+  if (!entry.data) {
+    return c.json({ error: entry.error ?? 'not ready' }, 503)
+  }
+  return c.json({
+    ...entry.data,
+    cachedAt: entry.fetchedAt ? new Date(entry.fetchedAt).toISOString() : null,
+  })
+})
+
+const evidenceMemo = new Map<
+  string,
+  { at: number; data: { viewUrl: string; sources: string[]; photos: string[]; confirmPhotos: string[] } }
+>()
+
+async function readEvidenceSnapshot(id: string) {
+  try {
+    const { readFile } = await import('node:fs/promises')
+    const { join, dirname } = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const snapPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      '..',
+      'public',
+      'geo',
+      'warspotting-evidence.json',
+    )
+    const snap = JSON.parse(await readFile(snapPath, 'utf8')) as {
+      evidence?: Record<
+        string,
+        { viewUrl?: string; sources?: string[]; photos?: string[]; confirmPhotos?: string[] }
+      >
+    }
+    return snap.evidence?.[id] ?? null
+  } catch {
+    return null
+  }
+}
+
+function mergeConfirmPhotos(
+  live: string[] | undefined,
+  snap: string[] | undefined,
+): string[] {
+  const out: string[] = []
+  for (const u of [...(live ?? []), ...(snap ?? [])]) {
+    if (u && !out.includes(u)) out.push(u)
+  }
+  return out
+}
+
+app.get('/api/warspotting/evidence/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!/^\d+$/.test(id)) return c.json({ error: 'bad id' }, 400)
+
+  const cached = evidenceMemo.get(id)
+  if (cached && Date.now() - cached.at < 30 * 60_000) {
+    return c.json(cached.data)
+  }
+
+  try {
+    const { fetchEvidenceForId, viewUrlForId } = await import(
+      '../scripts/lib/warspottingEvidence.mjs'
+    )
+    const snap = await readEvidenceSnapshot(id)
+
+    try {
+      const live = await fetchEvidenceForId(Number(id))
+      const data = {
+        viewUrl: live.viewUrl,
+        sources: live.sources?.length ? live.sources : (snap?.sources ?? []),
+        photos: live.photos ?? snap?.photos ?? [],
+        // Keep locally hosted thumbs from snapshot when source OG is missing (FB/TikTok/CF).
+        confirmPhotos: mergeConfirmPhotos(live.confirmPhotos, snap?.confirmPhotos),
+      }
+      evidenceMemo.set(id, { at: Date.now(), data })
+      return c.json(data)
+    } catch {
+      /* snapshot / minimal */
+    }
+
+    if (snap) {
+      const data = {
+        viewUrl: snap.viewUrl ?? viewUrlForId(id),
+        sources: snap.sources ?? [],
+        photos: snap.photos ?? [],
+        confirmPhotos: snap.confirmPhotos ?? [],
+      }
+      evidenceMemo.set(id, { at: Date.now(), data })
+      return c.json(data)
+    }
+
+    return c.json({
+      viewUrl: viewUrlForId(id),
+      sources: [],
+      photos: [],
+      confirmPhotos: [],
+    })
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      503,
+    )
+  }
 })
 
 console.log(`[bff] listening on http://127.0.0.1:${PORT}`)

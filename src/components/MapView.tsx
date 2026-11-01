@@ -6,6 +6,7 @@ import maplibregl, {
 } from 'maplibre-gl'
 import type { FeatureCollection, LineString, Point } from 'geojson'
 import {
+  DS_ATTACKS_GEOJSON_URL,
   FLY_TO_ZOOM,
   INITIAL_ZOOM,
   MAX_ZOOM,
@@ -23,21 +24,46 @@ import {
   type UiFilterKey,
 } from '../lib/neptun'
 import {
+  DS_ATTACK_ICON_ID,
+  registerDsAttackArrow,
+} from '../lib/dsAttackArrow'
+import {
+  DS_UNIT_HQ_ICON_ID,
+  DS_UNIT_ICON_ID,
+  registerDsUnitIcons,
+} from '../lib/dsUnitIcon'
+import type { DsUnit } from '../lib/dsUnits'
+import type { GroundFilterKey } from '../lib/warspotting'
+import {
   endKindColor,
   isEndedThreat,
   type DisplayThreat,
 } from '../lib/threatDisplay'
 import type { BurningRefinery, DsmStrike } from '../lib/droneStrikeMap'
-import type { RuAlertZone } from '../lib/ruAlerts'
+import type { MapMode } from '../lib/mapMode'
+import {
+  ruBplaMarkerId,
+  type RuAlertZone,
+  type RuTrajectory,
+} from '../lib/ruAlerts'
+import { indexCentroidsByKey } from '../lib/geoCentroid'
 import { isOverRussia, setHostileAirspace } from '../lib/russiaPresence'
+import {
+  groundIconId,
+  registerGroundIcons,
+} from '../lib/groundIcons'
+import type { RfSighting } from '../lib/rfSightings'
+import { registerRuTrajArrow } from '../lib/ruTrajArrow'
 import {
   ABROAD_ICON_COLOR,
   FIRE_ICON_ID,
   iconIdForType,
   registerThreatIcons,
 } from '../lib/threatIcons'
+import type { GroundLoss } from '../lib/warspotting'
 
 type Props = {
+  mapMode: MapMode
   threats: DisplayThreat[]
   alerts: AlertZone[]
   alertOblasts: AlertZone[]
@@ -51,6 +77,11 @@ type Props = {
   dsmStrikes: DsmStrike[]
   burningRefineries: BurningRefinery[]
   ruAlerts: RuAlertZone[]
+  ruTrajectories: RuTrajectory[]
+  groundLosses: GroundLoss[]
+  rfSightings: RfSighting[]
+  dsUnits: DsUnit[]
+  groundFilter: GroundFilterKey
 }
 
 const THREATS_SOURCE = 'threats'
@@ -58,12 +89,50 @@ const TRAILS_SOURCE = 'trails'
 const RAIONS_SOURCE = 'raions'
 const OBLASTS_SOURCE = 'oblasts'
 const OCCUPIED_SOURCE = 'occupied'
+const DS_ATTACKS_SOURCE = 'ds-attacks'
+const DS_UNITS_SOURCE = 'ds-units'
 const USER_SOURCE = 'user'
 const NEAR_SOURCE = 'near-me'
 const DSM_SOURCE = 'dsm-strikes'
 const NPZ_SOURCE = 'npz-fires'
+const RU_BPLA_SOURCE = 'ru-bpla'
+const RU_FIX_SOURCE = 'ru-fixes'
+const RU_TRAJ_SOURCE = 'ru-traj'
+const RU_TRAJ_ARROW_SOURCE = 'ru-traj-arrows'
+const GROUND_SOURCE = 'ground-losses'
+const SIGHTING_SOURCE = 'rf-sightings'
 const RUSSIA_SOURCE = 'russia-outline'
 const RUSSIA_OBLASTS_SOURCE = 'russia-oblasts'
+
+const AIR_LAYER_IDS = [
+  'oblasts-fill',
+  'raions-fill',
+  'russia-oblasts-fill',
+  'russia-oblasts-line',
+  'near-me-fill',
+  'near-me-line',
+  'trails-line',
+  'ru-traj-line',
+  'ru-traj-arrow',
+  'ru-fix-halo',
+  'ru-fix-dot',
+  'threat-uncertainty',
+  'threat-halo',
+  'threat-icon',
+  'threat-ended-label',
+  'dsm-icon',
+  'npz-icon',
+  'ru-bpla-icon',
+] as const
+
+const GROUND_LAYER_IDS = [
+  'ground-halo',
+  'ground-icon',
+  'sighting-halo',
+  'sighting-icon',
+  'ds-attack-arrow',
+  'ds-unit-icon',
+] as const
 
 /** Wide enough to pan across Ukraine + most of European / western Russia. */
 const MAP_MAX_BOUNDS: [[number, number], [number, number]] = [
@@ -147,7 +216,7 @@ function buildThreatFeatures(
     const heading = courseDeg ?? predicted?.heading ?? 0
     const selected = threat.id === selectedId ? 1 : 0
     const nearby = !nearbyIds || nearbyIds.has(threat.id) ? 1 : 0
-    // Live tracks over RF / occupied → same silhouettes, red. Ended stay gray.
+    // Live tracks over RF → red silhouettes. TOT / UA stay white. Ended stay gray.
     const overRussia = !ended && !areaOnly && isOverRussia(lat, lon)
     const color =
       ended && threat.endKind
@@ -258,6 +327,164 @@ function buildNpzFeatures(sites: BurningRefinery[]): FeatureCollection<Point> {
   }
 }
 
+function buildGroundFeatures(
+  losses: GroundLoss[],
+  selectedId: string | null,
+): FeatureCollection<Point> {
+  return {
+    type: 'FeatureCollection',
+    features: losses.map((l) => ({
+      type: 'Feature' as const,
+      id: l.id,
+      properties: {
+        id: l.id,
+        title: l.model,
+        category: l.category,
+        icon: groundIconId(l.category, 'loss'),
+        color: ABROAD_ICON_COLOR,
+        selected: l.id === selectedId ? 1 : 0,
+      },
+      geometry: { type: 'Point' as const, coordinates: [l.lon, l.lat] },
+    })),
+  }
+}
+
+function buildSightingFeatures(
+  sightings: RfSighting[],
+  selectedId: string | null,
+): FeatureCollection<Point> {
+  return {
+    type: 'FeatureCollection',
+    features: sightings.map((s) => ({
+      type: 'Feature' as const,
+      id: s.id,
+      properties: {
+        id: s.id,
+        title: s.summary,
+        category: s.category,
+        icon: groundIconId(s.category, 'sighting'),
+        color: '#f0b429',
+        selected: s.id === selectedId ? 1 : 0,
+        placeApprox: s.precision === 'place' ? 1 : 0,
+      },
+      geometry: { type: 'Point' as const, coordinates: [s.lon, s.lat] },
+    })),
+  }
+}
+
+/**
+ * RF BPLA markers: prefer geocoded town fixes from TG corridors, else oblast centroid.
+ * No experimental track lines (those were too noisy).
+ */
+function buildRuBplaFeatures(
+  alerts: RuAlertZone[],
+  trajectories: RuTrajectory[],
+  centroids: Map<string, [number, number]>,
+): FeatureCollection<Point> {
+  const features: FeatureCollection<Point>['features'] = []
+  const usedCells = new Set<string>()
+  const coveredKeys = new Set<string>()
+
+  const cellOf = (lon: number, lat: number) =>
+    `${lat.toFixed(1)},${lon.toFixed(1)}`
+
+  const activeKeys = new Set(
+    alerts.filter((a) => a.kinds?.includes('bpla')).map((a) => a.key),
+  )
+
+  // 1) Town fixes from trajectories that still touch an active alert.
+  for (const t of trajectories) {
+    if (!t.keys.some((k) => activeKeys.has(k))) continue
+    for (const p of t.points ?? []) {
+      if (!p.place) continue
+      const cell = cellOf(p.lon, p.lat)
+      if (usedCells.has(cell)) continue
+      usedCells.add(cell)
+      for (const k of t.keys) coveredKeys.add(k)
+      const bearing =
+        t.bearingDeg != null && Number.isFinite(t.bearingDeg) ? t.bearingDeg : 0
+      const id = ruBplaMarkerId('place', p.lon, p.lat, p.place)
+      features.push({
+        type: 'Feature',
+        id,
+        properties: {
+          id,
+          title: p.place,
+          icon: iconIdForType('uav', null, true, false),
+          bearing,
+          rotate: t.bearingDeg != null ? 1 : 0,
+        },
+        geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      })
+      if (features.length >= 10) break
+    }
+    if (features.length >= 10) break
+  }
+
+  // 2) Centroid fallback for alert oblasts without a town fix.
+  for (const a of alerts) {
+    if (!a.kinds?.includes('bpla')) continue
+    if (coveredKeys.has(a.key)) continue
+    const c = centroids.get(a.key)
+    if (!c) continue
+    const cell = cellOf(c[0], c[1])
+    if (usedCells.has(cell)) continue
+    usedCells.add(cell)
+    const hasBearing =
+      a.bearingDeg != null && Number.isFinite(a.bearingDeg)
+    const id = ruBplaMarkerId('oblast', c[0], c[1], a.key)
+    features.push({
+      type: 'Feature',
+      id,
+      properties: {
+        id,
+        title: a.name,
+        icon: iconIdForType('uav', null, true, false),
+        bearing: hasBearing ? (a.bearingDeg as number) : 0,
+        rotate: hasBearing ? 1 : 0,
+      },
+      geometry: { type: 'Point', coordinates: c },
+    })
+  }
+
+  return { type: 'FeatureCollection', features }
+}
+
+function buildDsUnitFeatures(
+  units: DsUnit[],
+  selectedId: string | null,
+  groundFilter: GroundFilterKey,
+): FeatureCollection<Point> {
+  // Units = RF troop ORBAT markers — keep visible with sightings too.
+  const filtered =
+    groundFilter === 'all' || groundFilter === 'sightings'
+      ? units
+      : units.filter((u) => u.category === groundFilter)
+  return {
+    type: 'FeatureCollection',
+    features: filtered.map((u) => ({
+      type: 'Feature' as const,
+      id: u.id,
+      properties: {
+        id: u.id,
+        title: u.title,
+        icon: u.role === 'hq' ? DS_UNIT_HQ_ICON_ID : DS_UNIT_ICON_ID,
+        selected: u.id === selectedId ? 1 : 0,
+      },
+      geometry: { type: 'Point' as const, coordinates: [u.lon, u.lat] },
+    })),
+  }
+}
+
+function setLayersVisibility(map: MapLibreMap, ids: readonly string[], visible: boolean) {
+  const value = visible ? 'visible' : 'none'
+  for (const id of ids) {
+    if (map.getLayer(id)) {
+      map.setLayoutProperty(id, 'visibility', value)
+    }
+  }
+}
+
 function syncAlertStates(
   map: MapLibreMap,
   source: string,
@@ -281,6 +508,7 @@ function syncAlertStates(
 }
 
 export function MapView({
+  mapMode,
   threats,
   alerts,
   alertOblasts,
@@ -294,15 +522,22 @@ export function MapView({
   dsmStrikes,
   burningRefineries,
   ruAlerts,
+  ruTrajectories,
+  groundLosses,
+  rfSightings,
+  dsUnits,
+  groundFilter,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const [ready, setReady] = useState(false)
+  const ruCentroidsRef = useRef<Map<string, [number, number]>>(new Map())
   const selectedRef = useRef(selectedId)
   const onSelectRef = useRef(onSelect)
   const threatsRef = useRef(threats)
   const filterRef = useRef(filter)
   const nearbyIdsRef = useRef(nearbyIds)
+  const mapModeRef = useRef(mapMode)
   const prevRaionKeys = useRef(new Set<string>())
   const prevOblastKeys = useRef(new Set<string>())
   const prevRuAlertKeys = useRef(new Set<string>())
@@ -327,6 +562,10 @@ export function MapView({
   useEffect(() => {
     nearbyIdsRef.current = nearbyIds
   }, [nearbyIds])
+
+  useEffect(() => {
+    mapModeRef.current = mapMode
+  }, [mapMode])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -361,6 +600,7 @@ export function MapView({
         let raions: FeatureCollection = emptyPoints() as FeatureCollection
         let oblasts: FeatureCollection = emptyPoints() as FeatureCollection
         let occupied: FeatureCollection = emptyPoints() as FeatureCollection
+        let dsAttacks: FeatureCollection = emptyPoints() as FeatureCollection
         let russia: FeatureCollection = emptyPoints() as FeatureCollection
         let russiaOblasts: FeatureCollection = emptyPoints() as FeatureCollection
         try {
@@ -400,11 +640,27 @@ export function MapView({
         } catch (occErr) {
           console.warn('Occupied territory layer unavailable', occErr)
         }
+        try {
+          const attacksRes = await fetch(DS_ATTACKS_GEOJSON_URL)
+          if (attacksRes.ok) {
+            const attacksJson = (await attacksRes.json()) as FeatureCollection
+            if (Array.isArray(attacksJson.features)) dsAttacks = attacksJson
+          }
+        } catch (attErr) {
+          console.warn('DeepState attack arrows unavailable', attErr)
+        }
         if (cancelled) return
 
-        setHostileAirspace([russia, occupied])
+        // Abroad (red) icons only over RF proper — TOT stays white like free Ukraine.
+        setHostileAirspace([russia])
+
+        ruCentroidsRef.current = new Map([
+          ...indexCentroidsByKey(russiaOblasts),
+          ...indexCentroidsByKey(oblasts),
+        ])
 
         map.addSource(OCCUPIED_SOURCE, { type: 'geojson', data: occupied })
+        map.addSource(DS_ATTACKS_SOURCE, { type: 'geojson', data: dsAttacks })
         map.addSource(RAIONS_SOURCE, { type: 'geojson', data: raions, promoteId: 'key' })
         map.addSource(OBLASTS_SOURCE, { type: 'geojson', data: oblasts, promoteId: 'key' })
         map.addSource(RUSSIA_SOURCE, { type: 'geojson', data: russia })
@@ -419,9 +675,20 @@ export function MapView({
         map.addSource(USER_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(DSM_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(NPZ_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(RU_BPLA_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(RU_FIX_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(RU_TRAJ_SOURCE, { type: 'geojson', data: emptyLines() })
+        map.addSource(RU_TRAJ_ARROW_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(GROUND_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(SIGHTING_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(DS_UNITS_SOURCE, { type: 'geojson', data: emptyPoints() })
 
         try {
+          registerDsAttackArrow(map)
+          registerRuTrajArrow(map)
+          registerDsUnitIcons(map)
           registerThreatIcons(map)
+          registerGroundIcons(map)
         } catch (iconErr) {
           console.warn('Threat icon registration failed', iconErr)
         }
@@ -456,7 +723,7 @@ export function MapView({
               '#f0b429',
               '#e85d4c',
             ],
-            'fill-opacity': ['case', ['==', ['feature-state', 'alert'], 1], 0.28, 0],
+            'fill-opacity': ['case', ['==', ['feature-state', 'alert'], 1], 0.42, 0],
           },
         })
 
@@ -471,8 +738,8 @@ export function MapView({
               '#ff6b6b',
               'rgba(0,0,0,0)',
             ],
-            'line-width': 1.1,
-            'line-opacity': 0.7,
+            'line-width': 1.4,
+            'line-opacity': 0.85,
           },
         })
 
@@ -591,6 +858,65 @@ export function MapView({
         })
 
         addLayerSafe({
+          id: 'ds-attack-arrow',
+          type: 'symbol',
+          source: DS_ATTACKS_SOURCE,
+          layout: {
+            visibility: 'none',
+            'icon-image': DS_ATTACK_ICON_ID,
+            'icon-size': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              5,
+              0.45,
+              9,
+              0.75,
+            ],
+            'icon-rotate': ['to-number', ['get', 'bearing']],
+            'icon-rotation-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+          paint: {
+            'icon-opacity': 0.92,
+          },
+        })
+
+        addLayerSafe({
+          id: 'ds-unit-icon',
+          type: 'symbol',
+          source: DS_UNITS_SOURCE,
+          layout: {
+            visibility: 'none',
+            'icon-image': ['get', 'icon'],
+            'icon-size': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              5,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 0.55, 0.4],
+              9,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 0.85, 0.65],
+            ],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'text-field': ['step', ['zoom'], '', 8, ['get', 'title']],
+            'text-size': 10,
+            'text-offset': [0, 1.4],
+            'text-anchor': 'top',
+            'text-optional': true,
+            'text-max-width': 10,
+          },
+          paint: {
+            'icon-opacity': 0.9,
+            'text-color': '#f5d0c8',
+            'text-halo-color': '#1a0a0a',
+            'text-halo-width': 1.2,
+          },
+        })
+
+        addLayerSafe({
           id: 'near-me-fill',
           type: 'fill',
           source: NEAR_SOURCE,
@@ -628,6 +954,98 @@ export function MapView({
               2.6,
             ],
             'line-opacity': 0.65,
+          },
+        })
+
+        addLayerSafe({
+          id: 'ru-traj-line',
+          type: 'line',
+          source: RU_TRAJ_SOURCE,
+          paint: {
+            'line-color': '#ff8a3d',
+            'line-width': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              3,
+              1.4,
+              6,
+              2.2,
+              9,
+              2.8,
+            ],
+            'line-opacity': 0.75,
+            'line-blur': 0.2,
+          },
+        })
+
+        addLayerSafe({
+          id: 'ru-traj-arrow',
+          type: 'symbol',
+          source: RU_TRAJ_ARROW_SOURCE,
+          layout: {
+            'icon-image': ['get', 'icon'],
+            'icon-size': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              3,
+              0.35,
+              6,
+              0.55,
+              9,
+              0.7,
+            ],
+            'icon-rotate': ['to-number', ['get', 'bearing']],
+            'icon-rotation-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+          paint: {
+            'icon-opacity': 0.9,
+          },
+        })
+
+        addLayerSafe({
+          id: 'ru-fix-halo',
+          type: 'circle',
+          source: RU_FIX_SOURCE,
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              6,
+              8,
+              9,
+            ],
+            'circle-color': '#ff8a3d',
+            'circle-opacity': 0.1,
+            'circle-stroke-color': '#ff8a3d',
+            'circle-stroke-width': 0.8,
+            'circle-stroke-opacity': 0.35,
+          },
+        })
+
+        addLayerSafe({
+          id: 'ru-fix-dot',
+          type: 'circle',
+          source: RU_FIX_SOURCE,
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              2.4,
+              8,
+              3.6,
+            ],
+            'circle-color': '#ff8a3d',
+            'circle-opacity': 0.9,
+            'circle-stroke-color': '#2a0a0a',
+            'circle-stroke-width': 0.8,
           },
         })
 
@@ -830,6 +1248,162 @@ export function MapView({
         })
 
         addLayerSafe({
+          id: 'ground-halo',
+          type: 'circle',
+          source: GROUND_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 14, 9],
+              9,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 20, 13],
+            ],
+            'circle-color': ABROAD_ICON_COLOR,
+            'circle-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              0.3,
+              0.14,
+            ],
+            'circle-blur': 0.55,
+          },
+        })
+
+        addLayerSafe({
+          id: 'ground-icon',
+          type: 'symbol',
+          source: GROUND_SOURCE,
+          layout: {
+            visibility: 'none',
+            'icon-image': ['get', 'icon'],
+            'icon-size': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 0.72, 0.55],
+              9,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 1.05, 0.82],
+            ],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+          paint: { 'icon-opacity': 1 },
+        })
+
+        addLayerSafe({
+          id: 'sighting-halo',
+          type: 'circle',
+          source: SIGHTING_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              [
+                'case',
+                ['==', ['to-number', ['get', 'selected']], 1],
+                ['case', ['==', ['to-number', ['get', 'placeApprox']], 1], 18, 14],
+                ['case', ['==', ['to-number', ['get', 'placeApprox']], 1], 13, 9],
+              ],
+              9,
+              [
+                'case',
+                ['==', ['to-number', ['get', 'selected']], 1],
+                ['case', ['==', ['to-number', ['get', 'placeApprox']], 1], 26, 20],
+                ['case', ['==', ['to-number', ['get', 'placeApprox']], 1], 18, 13],
+              ],
+            ],
+            'circle-color': '#f0b429',
+            'circle-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              0.28,
+              ['case', ['==', ['to-number', ['get', 'placeApprox']], 1], 0.18, 0.12],
+            ],
+            'circle-blur': 0.55,
+          },
+        })
+
+        addLayerSafe({
+          id: 'sighting-icon',
+          type: 'symbol',
+          source: SIGHTING_SOURCE,
+          layout: {
+            visibility: 'none',
+            'icon-image': ['get', 'icon'],
+            'icon-size': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 0.72, 0.55],
+              9,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 1.05, 0.82],
+            ],
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+          },
+          paint: {
+            'icon-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'placeApprox']], 1],
+              0.72,
+              1,
+            ],
+          },
+        })
+
+        addLayerSafe({
+          id: 'ru-bpla-icon',
+          type: 'symbol',
+          source: RU_BPLA_SOURCE,
+          layout: {
+            'icon-image': ['get', 'icon'],
+            'icon-size': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              3,
+              0.38,
+              5,
+              0.5,
+              7,
+              0.62,
+              9,
+              0.72,
+            ],
+            'icon-rotate': [
+              'case',
+              ['==', ['to-number', ['get', 'rotate']], 1],
+              ['to-number', ['get', 'bearing']],
+              0,
+            ],
+            'icon-rotation-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'text-field': ['step', ['zoom'], '', 6.5, ['get', 'title']],
+            'text-size': 10,
+            'text-offset': [0, 1.25],
+            'text-anchor': 'top',
+            'text-optional': true,
+            'text-max-width': 10,
+          },
+          paint: {
+            'icon-opacity': 0.95,
+            'text-color': '#ffd0a8',
+            'text-halo-color': '#1a0800',
+            'text-halo-width': 1.1,
+          },
+        })
+
+        addLayerSafe({
           id: 'user-dot',
           type: 'circle',
           source: USER_SOURCE,
@@ -842,9 +1416,18 @@ export function MapView({
         })
 
         map.on('click', (e) => {
-          const hitLayers = ['npz-icon', 'dsm-icon', 'threat-icon', 'threat-halo'].filter(
-            (id) => map.getLayer(id),
-          )
+          const preferGround = mapModeRef.current === 'ground'
+          const hitLayers = (
+            preferGround
+              ? [
+                  'sighting-icon',
+                  'sighting-halo',
+                  'ground-icon',
+                  'ground-halo',
+                  'ds-unit-icon',
+                ]
+              : ['npz-icon', 'dsm-icon', 'ru-bpla-icon', 'threat-icon', 'threat-halo']
+          ).filter((id) => map.getLayer(id))
           const hits = hitLayers.length
             ? map.queryRenderedFeatures(e.point, { layers: hitLayers })
             : []
@@ -856,7 +1439,18 @@ export function MapView({
           onSelectRef.current(null)
         })
 
-        for (const layerId of ['threat-icon', 'threat-halo', 'dsm-icon', 'npz-icon']) {
+        for (const layerId of [
+          'threat-icon',
+          'threat-halo',
+          'dsm-icon',
+          'npz-icon',
+          'ru-bpla-icon',
+          'ground-icon',
+          'ground-halo',
+          'sighting-icon',
+          'sighting-halo',
+          'ds-unit-icon',
+        ]) {
           map.on('mouseenter', layerId, () => {
             map.getCanvas().style.cursor = 'pointer'
           })
@@ -883,10 +1477,33 @@ export function MapView({
     }
   }, [])
 
-  // Smooth dead-reckoning on the map thread (~60fps), independent of React renders.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    const air = mapMode === 'air'
+    setLayersVisibility(map, AIR_LAYER_IDS, air)
+    setLayersVisibility(map, GROUND_LAYER_IDS, !air)
+
+    // Stronger DeepState occupied context when browsing ground markers.
+    if (map.getLayer('occupied-fill')) {
+      map.setPaintProperty('occupied-fill', 'fill-opacity', air ? 0.58 : 0.72)
+    }
+    if (map.getLayer('occupied-outline')) {
+      map.setPaintProperty('occupied-outline', 'line-opacity', air ? 0.9 : 1)
+      map.setPaintProperty('occupied-outline', 'line-width', air ? 1.2 : 1.6)
+    }
+    if (map.getLayer('unknown-fill')) {
+      map.setPaintProperty('unknown-fill', 'fill-opacity', air ? 0.42 : 0.55)
+    }
+    if (map.getLayer('unknown-outline')) {
+      map.setPaintProperty('unknown-outline', 'line-opacity', air ? 0.75 : 0.9)
+    }
+  }, [mapMode, ready])
+
+  // Smooth dead-reckoning on the map thread (~60fps), independent of React renders.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || mapMode !== 'air') return
     const srcPoints = map.getSource(THREATS_SOURCE) as GeoJSONSource | undefined
     const srcTrails = map.getSource(TRAILS_SOURCE) as GeoJSONSource | undefined
     if (!srcPoints || !srcTrails) return
@@ -910,21 +1527,50 @@ export function MapView({
     }
     raf = requestAnimationFrame(paint)
     return () => cancelAnimationFrame(raf)
-  }, [ready, threats, filter, selectedId, nearbyIds])
+  }, [ready, threats, filter, selectedId, nearbyIds, mapMode])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
     const src = map.getSource(DSM_SOURCE) as GeoJSONSource | undefined
-    src?.setData(buildDsmFeatures(dsmStrikes))
-  }, [dsmStrikes, ready])
+    src?.setData(mapMode === 'air' ? buildDsmFeatures(dsmStrikes) : emptyPoints())
+  }, [dsmStrikes, ready, mapMode])
 
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
     const src = map.getSource(NPZ_SOURCE) as GeoJSONSource | undefined
-    src?.setData(buildNpzFeatures(burningRefineries))
-  }, [burningRefineries, ready])
+    src?.setData(mapMode === 'air' ? buildNpzFeatures(burningRefineries) : emptyPoints())
+  }, [burningRefineries, ready, mapMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource(GROUND_SOURCE) as GeoJSONSource | undefined
+    src?.setData(
+      mapMode === 'ground' ? buildGroundFeatures(groundLosses, selectedId) : emptyPoints(),
+    )
+  }, [groundLosses, selectedId, ready, mapMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource(SIGHTING_SOURCE) as GeoJSONSource | undefined
+    src?.setData(
+      mapMode === 'ground' ? buildSightingFeatures(rfSightings, selectedId) : emptyPoints(),
+    )
+  }, [rfSightings, selectedId, ready, mapMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource(DS_UNITS_SOURCE) as GeoJSONSource | undefined
+    src?.setData(
+      mapMode === 'ground'
+        ? buildDsUnitFeatures(dsUnits, selectedId, groundFilter)
+        : emptyPoints(),
+    )
+  }, [dsUnits, selectedId, ready, mapMode, groundFilter])
 
   useEffect(() => {
     const map = mapRef.current
@@ -954,7 +1600,21 @@ export function MapView({
     const keys = new Set(ruOnly.map((a) => a.key))
     const levels = new Map(ruOnly.map((a) => [a.key, a.level]))
     syncAlertStates(map, RUSSIA_OBLASTS_SOURCE, keys, levels, prevRuAlertKeys.current)
-  }, [ruAlerts, ready])
+
+    const bplaSrc = map.getSource(RU_BPLA_SOURCE) as GeoJSONSource | undefined
+    const fixSrc = map.getSource(RU_FIX_SOURCE) as GeoJSONSource | undefined
+    const trajSrc = map.getSource(RU_TRAJ_SOURCE) as GeoJSONSource | undefined
+    const arrowSrc = map.getSource(RU_TRAJ_ARROW_SOURCE) as GeoJSONSource | undefined
+    // Icons only — no experimental corridor lines/dots.
+    fixSrc?.setData(emptyPoints())
+    trajSrc?.setData(emptyLines())
+    arrowSrc?.setData(emptyPoints())
+    bplaSrc?.setData(
+      mapMode === 'air'
+        ? buildRuBplaFeatures(ruAlerts, ruTrajectories, ruCentroidsRef.current)
+        : emptyPoints(),
+    )
+  }, [ruAlerts, ruTrajectories, ready, mapMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -1003,6 +1663,35 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !selectedId) return
+    if (mapMode === 'ground') {
+      const loss = groundLosses.find((l) => l.id === selectedId)
+      if (loss) {
+        map.easeTo({
+          center: [loss.lon, loss.lat],
+          zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
+          duration: 650,
+        })
+        return
+      }
+      const sight = rfSightings.find((s) => s.id === selectedId)
+      if (sight) {
+        map.easeTo({
+          center: [sight.lon, sight.lat],
+          zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
+          duration: 650,
+        })
+        return
+      }
+      const unit = dsUnits.find((u) => u.id === selectedId)
+      if (unit) {
+        map.easeTo({
+          center: [unit.lon, unit.lat],
+          zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
+          duration: 650,
+        })
+      }
+      return
+    }
     const threat = threats.find((t) => t.id === selectedId)
     if (threat && !threat.areaOnly) {
       const p = predict(threat, Date.now())
@@ -1030,7 +1719,7 @@ export function MapView({
         duration: 650,
       })
     }
-  }, [selectedId, threats, dsmStrikes, burningRefineries])
+  }, [selectedId, threats, dsmStrikes, burningRefineries, groundLosses, rfSightings, dsUnits, mapMode])
 
   return <div className="map-root" ref={containerRef} role="presentation" />
 }

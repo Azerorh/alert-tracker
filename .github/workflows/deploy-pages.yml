@@ -7,6 +7,10 @@ on:
     paths-ignore:
       - 'public/geo/ru-alerts.json'
       - 'public/geo/dsm-ru.json'
+      - 'public/geo/warspotting.json'
+      - 'public/geo/warspotting-evidence.json'
+      - 'public/geo/rf-sightings.json'
+      - 'public/geo/geoconfirmed-ground.json'
   schedule:
     # Occasional full rebuild so dist/ also embeds recent snapshots.
     - cron: '0 */6 * * *'
@@ -36,6 +40,15 @@ jobs:
         continue-on-error: true
       - name: Refresh RU alert regions snapshot
         run: node scripts/refresh-ru-alerts.mjs
+        continue-on-error: true
+      - name: Refresh WarSpotting ground losses snapshot
+        run: node scripts/refresh-warspotting.mjs
+        continue-on-error: true
+      - name: Refresh RF ground sightings snapshot
+        run: node scripts/refresh-rf-sightings.mjs
+        continue-on-error: true
+      - name: Refresh GeoConfirmed ground snapshot
+        run: node scripts/refresh-geoconfirmed-ground.mjs
         continue-on-error: true
       - name: Build
         run: npm run build

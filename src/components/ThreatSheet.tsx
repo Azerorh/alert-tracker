@@ -30,6 +30,10 @@ function confidenceLabel(level: string | undefined): string {
 function precisionLabel(threat: DisplayThreat): string {
   if (threat.id.startsWith('npz-')) return 'координати об’єкта (Drone Strike Map)'
   if (threat.id.startsWith('dsm-')) return 'заявлена точка удару (не live-трек)'
+  if (threat.id.startsWith('ru-bpla:place:'))
+    return 'орієнтовно · населений пункт з TG'
+  if (threat.id.startsWith('ru-bpla:'))
+    return 'центр області з тривогою (не точка БПЛА)'
   if (isEndedThreat(threat) && threat.endKind) {
     return threat.endKind === 'shot_down'
       ? 'остання відома точка · збито'
@@ -48,24 +52,30 @@ export function ThreatSheet({ threat, now, userLocation, onClose }: Props) {
   const meta = getTypeMeta(threat.type)
   const isNpz = threat.id.startsWith('npz-')
   const isDsm = threat.id.startsWith('dsm-') || isNpz
+  const isRuBpla = threat.id.startsWith('ru-bpla:')
   const ended = isEndedThreat(threat)
   const areaOnly = Boolean(threat.areaOnly)
   const advisory = Boolean(threat.advisory)
-  const predicted = areaOnly || ended || isDsm ? null : predict(threat, now)
+  const predicted =
+    areaOnly || ended || isDsm || isRuBpla ? null : predict(threat, now)
   const lat = predicted?.lat ?? threat.lat
   const lon = predicted?.lon ?? threat.lon
   const accent = isNpz
     ? '#ff6a00'
-    : isDsm
-      ? '#ff3b3b'
-      : ended && threat.endKind
-        ? endKindColor(threat.endKind)
-        : meta.hex
+    : isRuBpla
+      ? '#ff6b6b'
+      : isDsm
+        ? '#ff3b3b'
+        : ended && threat.endKind
+          ? endKindColor(threat.endKind)
+          : meta.hex
   const kicker = isNpz
     ? 'НПЗ / паливо · нещодавній вогонь'
-    : isDsm
-      ? `Удар по РФ · ${meta.label}`
-      : `${meta.label}${ended && threat.endKind ? ` · ${endKindLabel(threat.endKind)}` : ''}${!ended && advisory ? ' · спостереження' : ''}${areaOnly ? ' · лише область' : ''}`
+    : isRuBpla
+      ? `Тривога РФ (TG) · ${meta.label}`
+      : isDsm
+        ? `Удар по РФ · ${meta.label}`
+        : `${meta.label}${ended && threat.endKind ? ` · ${endKindLabel(threat.endKind)}` : ''}${!ended && advisory ? ' · спостереження' : ''}${areaOnly ? ' · лише область' : ''}`
 
   const distance =
     userLocation && !areaOnly
@@ -158,15 +168,17 @@ export function ThreatSheet({ threat, now, userLocation, onClose }: Props) {
         <div className="sheet-note">
           <dt>Важливо</dt>
           <dd>
-            {isDsm
-              ? 'Дані Drone Strike Map (CC BY 4.0): заявлені події з відкритих джерел, не live-трек і не радар.'
-              : ended
-                ? 'Короткий слід для зрозумілості карти. Не є офіційним підтвердженням ППО.'
-                : areaOnly
-                  ? 'Точної точки немає — джерела назвали лише регіон. Маркер у центрі області не є місцем БпЛА.'
-                  : threat.positionQuality === 'mapa'
-                    ? 'Позицію підтягнуто з MAPA-треку (не радар). Між оновленнями — їхній прогноз, без подвійної екстраполяції.'
-                    : 'Це не військовий радар. Точка — з публічних звітів (місто/напрямок) + оцінка руху між оновленнями.'}
+            {isRuBpla
+              ? 'Дані з публічних TG-каналів (як map.nahr.uk): регіональна тривога / фіксація, не радар і не live-трек NEPTUN.'
+              : isDsm
+                ? 'Дані Drone Strike Map (CC BY 4.0): заявлені події з відкритих джерел, не live-трек і не радар.'
+                : ended
+                  ? 'Короткий слід для зрозумілості карти. Не є офіційним підтвердженням ППО.'
+                  : areaOnly
+                    ? 'Точної точки немає — джерела назвали лише регіон. Маркер у центрі області не є місцем БпЛА.'
+                    : threat.positionQuality === 'mapa'
+                      ? 'Позицію підтягнуто з MAPA-треку (не радар). Між оновленнями — їхній прогноз, без подвійної екстраполяції.'
+                      : 'Це не військовий радар. Точка — з публічних звітів (місто/напрямок) + оцінка руху між оновленнями.'}
           </dd>
         </div>
       </dl>

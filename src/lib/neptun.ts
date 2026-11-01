@@ -45,9 +45,15 @@ export const RUSSIA_OUTLINE_GEOJSON_URL = `${publicBase}geo/russia-outline.geojs
 /** geoBoundaries RUS ADM1 simplified — oblast fills for RU alerts. */
 export const RUSSIA_OBLASTS_GEOJSON_URL = `${publicBase}geo/russia-oblasts.geojson`
 import occupiedGeoJsonUrl from '../data/occupied.geojson?url'
+import dsAttacksGeoJsonUrl from '../data/ds-attacks.geojson?url'
+import dsUnitsGeoJsonUrl from '../data/ds-units.geojson?url'
 
 /** Occupied territory polygons extracted from DeepStateMap (bundled URL). */
 export const OCCUPIED_GEOJSON_URL = occupiedGeoJsonUrl
+/** RF attack-direction arrows from DeepStateMap (bundled URL). */
+export const DS_ATTACKS_GEOJSON_URL = dsAttacksGeoJsonUrl
+/** Approximate RF unit positions from DeepStateMap (bundled URL). */
+export const DS_UNITS_GEOJSON_URL = dsUnitsGeoJsonUrl
 
 export type UiFilterKey =
   | 'all'

@@ -13,7 +13,8 @@ const OUT = join(
 )
 
 async function main() {
-  const { alerts, messageCount, errors, sources } = await fetchNahrStyleRuAlerts()
+  const { alerts, trajectories, messageCount, errors, sources } =
+    await fetchNahrStyleRuAlerts()
   const payload = {
     fetchedAt: new Date().toISOString(),
     source: 'telegram',
@@ -21,11 +22,12 @@ async function main() {
     messageCount,
     errors,
     alerts,
+    trajectories,
   }
   await mkdir(dirname(OUT), { recursive: true })
   await writeFile(OUT, JSON.stringify(payload))
   console.log(
-    `[ru-alerts] snapshot ${OUT}: ${alerts.length} regions from ${messageCount} msgs` +
+    `[ru-alerts] snapshot ${OUT}: ${alerts.length} regions, ${trajectories.length} traj from ${messageCount} msgs` +
       (errors.length ? ` (partial: ${errors.join('; ')})` : ''),
   )
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { MAP_MODE_LABEL, type MapMode } from '../lib/mapMode'
 import { threatsLabel, type ConnectionStatus } from '../lib/neptun'
 import { SourceStatus } from './SourceStatus'
 import { OblastWatchMenu } from './OblastWatchMenu'
@@ -6,6 +7,8 @@ import type { SourceHealth } from '../lib/api'
 import type { OblastMeta } from '../lib/oblasts'
 
 type Props = {
+  mapMode: MapMode
+  onMapModeChange: (mode: MapMode) => void
   status: ConnectionStatus
   threatCount: number
   alertCount: number
@@ -41,6 +44,8 @@ function statusLabel(status: ConnectionStatus): string {
 }
 
 export function TopBar({
+  mapMode,
+  onMapModeChange,
   status,
   threatCount,
   alertCount,
@@ -89,15 +94,35 @@ export function TopBar({
         ? `Біля · ${nearMeRadiusKm} км`
         : 'Біля мене'
 
+  const modeSwitch = (
+    <div className="mode-switch" role="group" aria-label="Режим карти">
+      {(['air', 'ground'] as const).map((mode) => (
+        <button
+          key={mode}
+          type="button"
+          className={`mode-switch-btn ${mapMode === mode ? 'active' : ''}`}
+          aria-pressed={mapMode === mode}
+          onClick={() => onMapModeChange(mode)}
+        >
+          {MAP_MODE_LABEL[mode]}
+        </button>
+      ))}
+    </div>
+  )
+
   return (
     <header className={`topbar ${menuOpen ? 'menu-open' : ''}`}>
       <div className="brand-block">
         <div className="brand-mark" aria-hidden />
         <div>
           <h1 className="brand-title">Тривога.Карта</h1>
-          <p className="brand-sub">Повітряні загрози України</p>
+          <p className="brand-sub">
+            {mapMode === 'air' ? 'Повітряні загрози України' : 'Наземні втрати техніки'}
+          </p>
         </div>
       </div>
+
+      <div className="topbar-mode">{modeSwitch}</div>
 
       <div className={`status-pill status-${status} topbar-live`}>
         <span className="status-dot" />
@@ -131,52 +156,66 @@ export function TopBar({
       ) : null}
 
       <div className="topbar-panel" id="topbar-panel">
+        <div className="topbar-mode-mobile">{modeSwitch}</div>
         <div className="topbar-center">
           <div className="topbar-stats">
             <div className={`status-pill status-${status} topbar-live-desktop`}>
               <span className="status-dot" />
               {statusLabel(status)}
             </div>
-            <div className="stat-chip">
-              <span className="stat-value">{threatCount}</span>
-              <span className="stat-label">
-                {nearMe && nearbyCount != null
-                  ? `поблизу / ${threatWord}`
-                  : threatWord}
-              </span>
-            </div>
-            <div className="stat-chip">
-              <span className="stat-value">{alertCount}</span>
-              <span className="stat-label">зон тривоги</span>
-            </div>
+            {mapMode === 'air' ? (
+              <>
+                <div className="stat-chip">
+                  <span className="stat-value">{threatCount}</span>
+                  <span className="stat-label">
+                    {nearMe && nearbyCount != null
+                      ? `поблизу / ${threatWord}`
+                      : threatWord}
+                  </span>
+                </div>
+                <div className="stat-chip">
+                  <span className="stat-value">{alertCount}</span>
+                  <span className="stat-label">зон тривоги</span>
+                </div>
+              </>
+            ) : (
+              <div className="stat-chip">
+                <span className="stat-value">{threatCount}</span>
+                <span className="stat-label">точок на карті</span>
+              </div>
+            )}
             <div className="stat-chip muted">
               <span className="stat-label">оновлено {relativeUpdated}</span>
             </div>
           </div>
-          <SourceStatus sources={sources} bffUp={bffUp} />
+          {mapMode === 'air' ? <SourceStatus sources={sources} bffUp={bffUp} /> : null}
         </div>
 
         <div className="topbar-actions">
-          <OblastWatchMenu
-            oblasts={oblasts}
-            watched={watchedOblasts}
-            permission={notifyPermission}
-            onToggle={onToggleOblast}
-            onSelectAll={onSelectAllOblasts}
-            onClearAll={onClearOblasts}
-            onRequestPermission={onRequestNotifyPermission}
-          />
-          <button
-            type="button"
-            className={`btn-locate ${nearMe ? 'active' : ''}`}
-            onClick={() => {
-              onToggleNearMe()
-              setMenuOpen(false)
-            }}
-            title={`Підсвітити загрози в радіусі ${nearMeRadiusKm} км`}
-          >
-            {nearLabel}
-          </button>
+          {mapMode === 'air' ? (
+            <OblastWatchMenu
+              oblasts={oblasts}
+              watched={watchedOblasts}
+              permission={notifyPermission}
+              onToggle={onToggleOblast}
+              onSelectAll={onSelectAllOblasts}
+              onClearAll={onClearOblasts}
+              onRequestPermission={onRequestNotifyPermission}
+            />
+          ) : null}
+          {mapMode === 'air' ? (
+            <button
+              type="button"
+              className={`btn-locate ${nearMe ? 'active' : ''}`}
+              onClick={() => {
+                onToggleNearMe()
+                setMenuOpen(false)
+              }}
+              title={`Підсвітити загрози в радіусі ${nearMeRadiusKm} км`}
+            >
+              {nearLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             className="btn-locate"
