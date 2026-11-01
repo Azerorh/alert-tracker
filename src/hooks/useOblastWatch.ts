@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  findOblastKey,
+  expandWatchedOblastKeys,
   loadOblastCatalog,
+  matchWatchedOblastKey,
   type OblastMeta,
 } from '../lib/oblasts'
 import { getTypeMeta, predict } from '../lib/neptun'
 import type { AlertLevel, AlertZone } from '../lib/neptun-types'
-import { isActiveTrack, type DisplayThreat } from '../lib/threatDisplay'
+import { isActiveTrack, isEndedThreat, type DisplayThreat } from '../lib/threatDisplay'
 import type { Feature } from 'geojson'
 
 const STORAGE_KEY = 'alert-tracker:watched-oblasts'
@@ -85,16 +86,19 @@ function buildWatchedAlertStates(
   alertOblasts: AlertZone[],
   alerts: AlertZone[],
 ): Map<string, OblastAlertState> {
-  const watchedSet = new Set(watched)
+  const expanded = expandWatchedOblastKeys(watched)
   const keyByName = new Map(list.map((o) => [o.name, o.key]))
   const out = new Map<string, OblastAlertState>()
   for (const key of watched) out.set(key, 'clear')
 
-  const raise = (key: string, level: AlertLevel | undefined) => {
-    if (!watchedSet.has(key)) return
+  const raise = (geoKey: string, level: AlertLevel | undefined) => {
+    if (!expanded.has(geoKey)) return
     const next: OblastAlertState = level === 'yellow' ? 'yellow' : 'red'
-    const prev = out.get(key) ?? 'clear'
-    if (levelRank(next) > levelRank(prev)) out.set(key, next)
+    for (const selected of watched) {
+      if (!expandWatchedOblastKeys([selected]).has(geoKey)) continue
+      const prev = out.get(selected) ?? 'clear'
+      if (levelRank(next) > levelRank(prev)) out.set(selected, next)
+    }
   }
 
   for (const zone of alertOblasts) raise(zone.key, zone.level)
@@ -137,6 +141,8 @@ export function useOblastWatch(
   const featuresRef = useRef<Feature[]>([])
   /** threatId → oblast key currently inside (watched only). */
   const insideRef = useRef(new Map<string, string>())
+  /** Threat IDs already baselined / notified — avoids spam on first arm. */
+  const seenThreatIdsRef = useRef(new Set<string>())
   const prevWatchedRef = useRef<string[]>([])
   const primedRef = useRef(false)
   const alertPrimedRef = useRef(false)
@@ -236,38 +242,42 @@ export function useOblastWatch(
   const clearAll = useCallback(() => {
     persist([])
     insideRef.current.clear()
+    seenThreatIdsRef.current.clear()
     prevWatchedRef.current = []
     primedRef.current = false
     alertPrimedRef.current = false
     alertStateRef.current.clear()
   }, [persist])
 
-  /** Mark everyone currently inside `keys` as already known — no alerts. */
+  /** Mark current threats as known for `keys` — no notifications. */
   const seedSilent = useCallback((keys: string[]) => {
     if (!keys.length || !featuresRef.current.length) return
-    const keySet = new Set(keys)
-    const live = threatsRef.current.filter((t) => isActiveTrack(t) && !t.areaOnly)
+    const watchedSet = expandWatchedOblastKeys(keys)
     const ts = Date.now()
-    for (const threat of live) {
+    for (const threat of threatsRef.current) {
+      if (threat.areaOnly) continue
+      seenThreatIdsRef.current.add(threat.id)
+      if (!isActiveTrack(threat)) continue
       const p = predict(threat, ts)
-      const oblast = findOblastKey(p.lon, p.lat, featuresRef.current)
-      if (!oblast || !keySet.has(oblast)) continue
+      const oblast = matchWatchedOblastKey(p.lon, p.lat, watchedSet, featuresRef.current)
+      if (!oblast) continue
       insideRef.current.set(threat.id, oblast)
     }
   }, [])
 
-  // Detect only real enters into watched oblasts
+  // Detect first sightings + enters into watched oblasts (Kyiv city ↔ oblast linked).
   useEffect(() => {
     if (!featuresRef.current.length) return
 
     if (!watched.length) {
       insideRef.current.clear()
+      seenThreatIdsRef.current.clear()
       prevWatchedRef.current = []
       primedRef.current = false
       return
     }
 
-    const watchedSet = new Set(watched)
+    const watchedSet = expandWatchedOblastKeys(watched)
     const nameByKey = new Map(list.map((o) => [o.key, o.name]))
     const prevWatched = prevWatchedRef.current
     const added = watched.filter((k) => !prevWatched.includes(k))
@@ -281,31 +291,50 @@ export function useOblastWatch(
     }
     if (added.length) {
       seedSilent(added)
-      prevWatchedRef.current = [...watched]
-      // Continue into enter detection for other movement in this same tick.
-    } else {
-      prevWatchedRef.current = [...watched]
     }
+    prevWatchedRef.current = [...watched]
 
-    const live = threats.filter((t) => isActiveTrack(t) && !t.areaOnly)
-    const seen = new Set<string>()
+    const candidates = threats.filter(
+      (t) => !t.areaOnly && (isActiveTrack(t) || isEndedThreat(t)),
+    )
+    const liveIds = new Set(
+      threats.filter((t) => isActiveTrack(t) && !t.areaOnly).map((t) => t.id),
+    )
     const ts = Date.now()
 
-    for (const threat of live) {
-      seen.add(threat.id)
+    for (const threat of candidates) {
       const p = predict(threat, ts)
-      const key = findOblastKey(p.lon, p.lat, featuresRef.current)
+      const key = matchWatchedOblastKey(p.lon, p.lat, watchedSet, featuresRef.current)
+      const wasSeen = seenThreatIdsRef.current.has(threat.id)
       const prev = insideRef.current.get(threat.id)
 
-      if (!key || !watchedSet.has(key)) {
+      if (!wasSeen) {
+        seenThreatIdsRef.current.add(threat.id)
+        if (!key) continue
+        if (isActiveTrack(threat)) insideRef.current.set(threat.id, key)
+        if (!notifyKindsRef.current.threats) continue
+        const meta = getTypeMeta(threat.type)
+        const oblastName = nameByKey.get(key) ?? key
+        pushAlert(
+          `${meta.shortLabel} · ${oblastName}`,
+          threat.title || `Загроза над «${oblastName}»`,
+          `oblast-enter-${key}-${threat.id}`,
+        )
+        continue
+      }
+
+      if (!isActiveTrack(threat)) {
         if (prev) insideRef.current.delete(threat.id)
         continue
       }
 
-      // Still in the same watched oblast — ignore.
+      if (!key) {
+        if (prev) insideRef.current.delete(threat.id)
+        continue
+      }
+
       if (prev === key) continue
 
-      // Real enter: was outside watched area, or came from another oblast.
       insideRef.current.set(threat.id, key)
       if (!notifyKindsRef.current.threats) continue
       const meta = getTypeMeta(threat.type)
@@ -318,7 +347,7 @@ export function useOblastWatch(
     }
 
     for (const id of [...insideRef.current.keys()]) {
-      if (!seen.has(id)) insideRef.current.delete(id)
+      if (!liveIds.has(id)) insideRef.current.delete(id)
     }
   }, [threats, watched, list, pushAlert, seedSilent])
 

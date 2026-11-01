@@ -64,7 +64,8 @@ export function OblastWatchMenu({
           <div className="oblast-watch-head">
             <p className="oblast-watch-title">Сповіщення по областях</p>
             <p className="oblast-watch-sub">
-              Оберіть типи сповіщень і області. Після вибору — без стартового спаму.
+              Оберіть типи сповіщень і області. Київ / Київська та Крим / Севастополь
+              зв’язані. Після вибору — без стартового спаму.
             </p>
           </div>
 

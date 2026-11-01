@@ -52,6 +52,47 @@ export function findOblastKey(
   return null
 }
 
+/**
+ * City polygons are cut out of oblast polygons (e.g. Kyiv). Watching the oblast
+ * should still cover the city, and vice-versa for alert UX.
+ */
+export const OBLAST_WATCH_GROUPS: readonly (readonly string[])[] = [
+  ['київська', 'м. київ'],
+  ['автономна республіка крим', 'севастополь'],
+]
+
+export function expandWatchedOblastKeys(watched: Iterable<string>): Set<string> {
+  const set = new Set(watched)
+  for (const group of OBLAST_WATCH_GROUPS) {
+    if (group.some((k) => set.has(k))) {
+      for (const k of group) set.add(k)
+    }
+  }
+  return set
+}
+
+/** Prefer city keys when both city + oblast geometries match a watched set. */
+export function matchWatchedOblastKey(
+  lon: number,
+  lat: number,
+  watched: Set<string>,
+  features: Feature[],
+): string | null {
+  if (!watched.size) return null
+  const hits: string[] = []
+  for (const f of features) {
+    const key = String(f.properties?.key ?? '')
+    if (!key || !watched.has(key)) continue
+    if (pointInOblastFeature(lon, lat, f)) hits.push(key)
+  }
+  if (!hits.length) return null
+  hits.sort((a, b) => {
+    const score = (k: string) => (k.startsWith('м.') || k === 'севастополь' ? 0 : 1)
+    return score(a) - score(b)
+  })
+  return hits[0] ?? null
+}
+
 export async function loadOblastCatalog(): Promise<{
   list: OblastMeta[]
   features: Feature[]
