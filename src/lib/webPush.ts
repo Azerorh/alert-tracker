@@ -26,7 +26,9 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 /** Safari iOS is picky: needs a clean ArrayBuffer, not a Uint8Array view. */
 function vapidKeyBuffer(base64String: string): ArrayBuffer {
   const bytes = urlBase64ToUint8Array(base64String)
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+  const copy = new Uint8Array(bytes.byteLength)
+  copy.set(bytes)
+  return copy.buffer
 }
 
 export function isPushConfigured(): boolean {
