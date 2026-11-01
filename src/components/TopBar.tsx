@@ -124,9 +124,13 @@ export function TopBar({
 
       <div className="topbar-mode">{modeSwitch}</div>
 
-      <div className={`status-pill status-${status} topbar-live`}>
+      <div
+        className={`status-pill status-${status} topbar-live`}
+        title={statusLabel(status)}
+        aria-label={statusLabel(status)}
+      >
         <span className="status-dot" />
-        {statusLabel(status)}
+        <span className="topbar-live-label">{statusLabel(status)}</span>
       </div>
 
       <button
