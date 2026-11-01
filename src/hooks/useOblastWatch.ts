@@ -8,6 +8,12 @@ import {
 import { getTypeMeta, predict } from '../lib/neptun'
 import type { AlertLevel, AlertZone } from '../lib/neptun-types'
 import { isActiveTrack, isEndedThreat, type DisplayThreat } from '../lib/threatDisplay'
+import {
+  isPushConfigured,
+  registerPushServiceWorker,
+  syncPushSubscription,
+  type PushSyncStatus,
+} from '../lib/webPush'
 import type { Feature } from 'geojson'
 
 const STORAGE_KEY = 'alert-tracker:watched-oblasts'
@@ -138,6 +144,9 @@ export function useOblastWatch(
     typeof Notification !== 'undefined' ? Notification.permission : 'denied',
   )
   const [toasts, setToasts] = useState<WatchToast[]>([])
+  const [pushStatus, setPushStatus] = useState<PushSyncStatus>(() =>
+    isPushConfigured() ? 'syncing' : 'disabled',
+  )
   const featuresRef = useRef<Feature[]>([])
   /** threatId → oblast key currently inside (watched only). */
   const insideRef = useRef(new Map<string, string>())
@@ -166,6 +175,31 @@ export function useOblastWatch(
       cancelled = true
     }
   }, [])
+
+  // Register SW early so PushManager is ready when the user picks oblasts.
+  useEffect(() => {
+    if (!isPushConfigured()) return
+    void registerPushServiceWorker()
+  }, [])
+
+  // Keep Cloudflare Worker subscription in sync for background phone notifies.
+  useEffect(() => {
+    if (!isPushConfigured()) {
+      setPushStatus('disabled')
+      return
+    }
+    let cancelled = false
+    setPushStatus('syncing')
+    const timer = window.setTimeout(() => {
+      void syncPushSubscription({ watched, kinds: notifyKinds, permission }).then((status) => {
+        if (!cancelled) setPushStatus(status)
+      })
+    }, 400)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [watched, notifyKinds, permission])
 
   const persist = useCallback((keys: string[]) => {
     const unique = [...new Set(keys)]
@@ -421,6 +455,7 @@ export function useOblastWatch(
     notifyKinds,
     setNotifyKinds,
     permission,
+    pushStatus,
     toasts,
     toggleOblast,
     selectAll,

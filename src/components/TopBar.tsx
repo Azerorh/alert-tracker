@@ -6,6 +6,7 @@ import { OblastWatchMenu } from './OblastWatchMenu'
 import type { SourceHealth } from '../lib/api'
 import type { OblastMeta } from '../lib/oblasts'
 import type { OblastNotifyKinds } from '../hooks/useOblastWatch'
+import type { PushSyncStatus } from '../lib/webPush'
 
 type Props = {
   mapMode: MapMode
@@ -29,6 +30,7 @@ type Props = {
   notifyKinds: OblastNotifyKinds
   onNotifyKindsChange: (patch: Partial<OblastNotifyKinds>) => void
   notifyPermission: NotificationPermission | 'unsupported'
+  pushStatus: PushSyncStatus
   onToggleOblast: (key: string) => void
   onSelectAllOblasts: () => void
   onClearOblasts: () => void
@@ -67,6 +69,7 @@ export function TopBar({
   notifyKinds,
   onNotifyKindsChange,
   notifyPermission,
+  pushStatus,
   onToggleOblast,
   onSelectAllOblasts,
   onClearOblasts,
@@ -208,6 +211,7 @@ export function TopBar({
               notifyKinds={notifyKinds}
               onNotifyKindsChange={onNotifyKindsChange}
               permission={notifyPermission}
+              pushStatus={pushStatus}
               onToggle={onToggleOblast}
               onSelectAll={onSelectAllOblasts}
               onClearAll={onClearOblasts}

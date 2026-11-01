@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { OblastMeta } from '../lib/oblasts'
 import type { OblastNotifyKinds } from '../hooks/useOblastWatch'
+import { pushStatusLabel, type PushSyncStatus } from '../lib/webPush'
 
 type Props = {
   oblasts: OblastMeta[]
@@ -8,6 +9,7 @@ type Props = {
   notifyKinds: OblastNotifyKinds
   onNotifyKindsChange: (patch: Partial<OblastNotifyKinds>) => void
   permission: NotificationPermission | 'unsupported'
+  pushStatus: PushSyncStatus
   onToggle: (key: string) => void
   onSelectAll: () => void
   onClearAll: () => void
@@ -20,11 +22,13 @@ export function OblastWatchMenu({
   notifyKinds,
   onNotifyKindsChange,
   permission,
+  pushStatus,
   onToggle,
   onSelectAll,
   onClearAll,
   onRequestPermission,
 }: Props) {
+  const bgLabel = pushStatusLabel(pushStatus)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const listId = useId()
@@ -65,8 +69,10 @@ export function OblastWatchMenu({
             <p className="oblast-watch-title">Сповіщення по областях</p>
             <p className="oblast-watch-sub">
               Оберіть типи сповіщень і області. Київ / Київська та Крим / Севастополь
-              зв’язані. Після вибору — без стартового спаму.
+              зв’язані. Після вибору — без стартового спаму. Фон на телефоні —
+              через Web Push (перевірка ~раз на хвилину).
             </p>
+            {bgLabel ? <p className="oblast-watch-push">{bgLabel}</p> : null}
           </div>
 
           <div className="oblast-watch-kinds" role="group" aria-label="Типи сповіщень">

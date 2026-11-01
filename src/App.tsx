@@ -285,6 +285,7 @@ export default function App() {
         notifyPermission={
           typeof Notification === 'undefined' ? 'unsupported' : oblastWatch.permission
         }
+        pushStatus={oblastWatch.pushStatus}
         onToggleOblast={oblastWatch.toggleOblast}
         onSelectAllOblasts={oblastWatch.selectAll}
         onClearOblasts={oblastWatch.clearAll}

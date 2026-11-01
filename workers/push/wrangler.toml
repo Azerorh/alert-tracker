@@ -1,0 +1,18 @@
+name = "alert-tracker-push"
+main = "src/index.ts"
+compatibility_date = "2025-10-01"
+workers_dev = true
+
+[[kv_namespaces]]
+binding = "PUSH_SUBS"
+id = "85d8a667c1194a1d856db24dafdc904b"
+preview_id = "2f865ee6c8e64f40b423463a804c5273"
+
+[vars]
+OBLASTS_GEOJSON_URL = "https://azerorh.github.io/alert-tracker/geo/oblasts.geojson"
+ALLOWED_ORIGINS = "https://azerorh.github.io,http://localhost:5173,http://127.0.0.1:5173"
+VAPID_PUBLIC_KEY = "BMKnqtBWWJADkT7Kspawm9y2lyERbGcH3B522nGB9f4jI0YoNyGX1sSABWRbBHeeowIyV9J9cdQld6kLCThKyGw"
+
+# Free plan minimum is 1 minute.
+[triggers]
+crons = ["* * * * *"]

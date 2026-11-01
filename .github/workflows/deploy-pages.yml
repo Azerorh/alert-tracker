@@ -54,6 +54,7 @@ jobs:
         run: npm run build
         env:
           VITE_BASE: /alert-tracker/
+          VITE_PUSH_API_BASE: https://alert-tracker-push.azerorh.workers.dev
 
       - uses: actions/upload-pages-artifact@v3
         with:

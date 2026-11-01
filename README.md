@@ -42,6 +42,8 @@ npm run preview
 
 Опційно: `VITE_API_BASE=https://your-bff.example` для продакшену. Kill-switch треків на BFF: `HIDE_TRACKS=1`.
 
+Фоновий Web Push: Worker `https://alert-tracker-push.azerorh.workers.dev` (див. `workers/push/`). Збірка Pages підставляє `VITE_PUSH_API_BASE`.
+
 ## Що вміє v1
 
 - Live-мітки кожного об’єкта з dead-reckoning між оновленнями
@@ -51,7 +53,7 @@ npm run preview
 - «Моє місце» та режим «Біля мене» (радіус 80 км)
 - Статус джерел (BFF / NEPTUN / MAPA) у шапці
 - Дисклеймер + атрибуція NEPTUN / MAPA / DeepStateMap
-- Без push / Telegram (лише оновлення сайту)
+- Web Push по обраних областях (Cloudflare Worker) — фон на телефоні; на iPhone спочатку «Додати на домашній екран»
 
 Оновити шар окупації:
 
