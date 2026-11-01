@@ -346,7 +346,9 @@ a {
   top: calc(100% + 8px);
   right: 0;
   z-index: 41;
-  width: min(320px, calc(100% - 28px));
+  /* Viewport-based: parent is only as wide as the "Області" button. */
+  width: min(320px, calc(100vw - 28px));
+  min-width: min(260px, calc(100vw - 28px));
   max-height: min(70vh, 420px);
   display: flex;
   flex-direction: column;
@@ -445,7 +447,7 @@ a {
   left: auto;
   display: grid;
   gap: 8px;
-  width: min(340px, calc(100% - 28px));
+  width: min(340px, calc(100vw - 28px));
   pointer-events: none;
 }
 
