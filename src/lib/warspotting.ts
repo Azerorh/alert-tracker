@@ -228,20 +228,31 @@ export function resolvePhotoUrl(url: string): string {
   return `${base}${path}`
 }
 
+/** Confirm/source first, then WarSpotting thumbs — skip empties / dupes. */
+export function pickEvidencePhotos(
+  ev: Pick<GroundEvidence, 'confirmPhotos' | 'photos'> | null | undefined,
+  fallback: string[] = [],
+): string[] {
+  const out: string[] = []
+  for (const u of [...(ev?.confirmPhotos ?? []), ...(ev?.photos ?? []), ...fallback]) {
+    const resolved = resolvePhotoUrl(u)
+    if (resolved && !out.includes(resolved)) out.push(resolved)
+  }
+  return out.slice(0, 6)
+}
+
 export function attachEvidence(loss: GroundLoss, map: Record<string, GroundEvidence>): GroundLoss {
   const wsId = loss.wsId ?? numericWarspottingId(loss.id)
   if (wsId == null) return loss
   const ev = map[String(wsId)]
   const viewUrl = loss.viewUrl ?? warspottingViewUrl(wsId)
   if (!ev) return { ...loss, wsId, viewUrl }
-  // Prefer source/local confirmation photos — WarSpotting CDN often blocked as hotlink.
-  const photos = (ev.confirmPhotos?.length ? ev.confirmPhotos : []).map(resolvePhotoUrl).filter(Boolean)
   return {
     ...loss,
     wsId,
     viewUrl: ev.viewUrl || viewUrl,
     sources: ev.sources ?? [],
-    photos: [...new Set(photos)].slice(0, 6),
+    photos: pickEvidencePhotos(ev, loss.photos ?? []),
   }
 }
 

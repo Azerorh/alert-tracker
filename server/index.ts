@@ -589,11 +589,25 @@ app.get('/api/warspotting/evidence/:id', async (c) => {
     }
 
     if (snap) {
-      const data = {
+      let data = {
         viewUrl: snap.viewUrl ?? viewUrlForId(id),
         sources: snap.sources ?? [],
         photos: snap.photos ?? [],
         confirmPhotos: snap.confirmPhotos ?? [],
+      }
+      // View pages are often CF-blocked; refresh OG images from known sources.
+      if (data.sources.length) {
+        try {
+          const { enrichEvidence } = await import('../scripts/lib/warspottingEvidence.mjs')
+          const refreshed = await enrichEvidence(data)
+          data = {
+            ...data,
+            confirmPhotos: mergeConfirmPhotos(refreshed.confirmPhotos, data.confirmPhotos),
+            sources: refreshed.sources?.length ? refreshed.sources : data.sources,
+          }
+        } catch {
+          /* keep snap */
+        }
       }
       evidenceMemo.set(id, { at: Date.now(), data })
       return c.json(data)

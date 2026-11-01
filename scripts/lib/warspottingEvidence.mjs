@@ -90,12 +90,43 @@ export async function enrichEvidence(base) {
     const photo = await resolveSourcePhoto(src)
     if (photo && !confirmPhotos.includes(photo)) confirmPhotos.push(photo)
   }
+  // Keep prior confirms if OG resolve failed this pass.
+  for (const prev of base.confirmPhotos ?? []) {
+    if (prev && !confirmPhotos.includes(prev)) confirmPhotos.push(prev)
+  }
   return {
     ...base,
     // Prefer source confirmation photos (Telegram CDN etc.) — usually embeddable.
     // Keep WarSpotting thumbs as secondary (often CF-blocked as hotlinks).
     confirmPhotos,
   }
+}
+
+/** Host a confirmation photo under public/geo/ws-photos/{id}.jpg for Pages/hotlink-safe use. */
+export async function mirrorEvidencePhoto(id, photoUrl, photosDir) {
+  if (!photoUrl || !id) return null
+  if (String(photoUrl).includes('/geo/ws-photos/')) return String(photoUrl).replace(/^\//, '/')
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  await mkdir(photosDir, { recursive: true })
+  const res = await fetch(photoUrl, {
+    headers: {
+      Accept: 'image/*,*/*',
+      'User-Agent':
+        'Mozilla/5.0 (compatible; alert-tracker/1.0; +https://github.com/Azerorh/alert-tracker)',
+    },
+    redirect: 'follow',
+  })
+  if (!res.ok) throw new Error(`mirror HTTP ${res.status}`)
+  const ctype = res.headers.get('content-type') || ''
+  if (!ctype.includes('image') && !ctype.includes('octet-stream')) {
+    throw new Error(`mirror not image: ${ctype}`)
+  }
+  const buf = Buffer.from(await res.arrayBuffer())
+  if (buf.length < 400) throw new Error('mirror too small')
+  const file = `${id}.jpg`
+  await writeFile(join(photosDir, file), buf)
+  return `/geo/ws-photos/${file}`
 }
 
 export async function fetchEvidenceForId(id) {

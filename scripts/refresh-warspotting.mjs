@@ -3,7 +3,11 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { geocodeWarspottingPlace, loadPlaceIndex } from './lib/placeGazetteer.mjs'
-import { enrichEvidence, fetchEvidenceForId } from './lib/warspottingEvidence.mjs'
+import {
+  enrichEvidence,
+  fetchEvidenceForId,
+  mirrorEvidencePhoto,
+} from './lib/warspottingEvidence.mjs'
 
 const ORIGIN = 'https://ukr.warspotting.net'
 const WINDOW_HOURS = 24 * 21
@@ -11,6 +15,7 @@ const WINDOW_MS = WINDOW_HOURS * 60 * 60_000
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'geo')
 const OUT = join(ROOT, 'warspotting.json')
 const EVIDENCE_OUT = join(ROOT, 'warspotting-evidence.json')
+const PHOTOS_DIR = join(ROOT, 'ws-photos')
 const UA = {
   Accept: 'application/json',
   'User-Agent': 'alert-tracker-build/1.0',
@@ -194,17 +199,31 @@ async function main() {
   const forEvidence = losses.slice(0, 40)
   for (const loss of forEvidence) {
     const id = String(loss.wsId)
+    const prev = evidence[id]
     try {
       const live = await fetchEvidenceForId(loss.wsId)
-      evidence[id] = {
-        viewUrl: live.viewUrl,
-        sources: live.sources ?? [],
-        photos: live.photos ?? [],
-        confirmPhotos: live.confirmPhotos ?? [],
+      const photos = [...new Set([...(live.photos ?? []), ...(prev?.photos ?? [])])]
+      const confirmPhotos = [
+        ...new Set([...(live.confirmPhotos ?? []), ...(prev?.confirmPhotos ?? [])]),
+      ]
+      // Never replace a rich snapshot with an empty scrape (CF / HTML churn).
+      if (!photos.length && !confirmPhotos.length && (prev?.photos?.length || prev?.confirmPhotos?.length)) {
+        evidence[id] = {
+          ...prev,
+          viewUrl: live.viewUrl || prev.viewUrl,
+          sources: live.sources?.length ? live.sources : (prev.sources ?? []),
+        }
+      } else {
+        evidence[id] = {
+          viewUrl: live.viewUrl || prev?.viewUrl || loss.viewUrl,
+          sources: live.sources?.length ? live.sources : (prev?.sources ?? []),
+          photos,
+          confirmPhotos,
+        }
       }
       await new Promise((r) => setTimeout(r, 350))
     } catch {
-      if (!evidence[id]) {
+      if (!prev) {
         evidence[id] = {
           viewUrl: loss.viewUrl,
           sources: [],
@@ -213,9 +232,27 @@ async function main() {
         }
       } else {
         try {
-          evidence[id] = await enrichEvidence(evidence[id])
+          evidence[id] = await enrichEvidence(prev)
         } catch {
           /* keep */
+        }
+      }
+    }
+
+    // Mirror first usable confirm photo locally (Pages + hotlink-safe).
+    const cur = evidence[id]
+    if (cur) {
+      const candidates = [...(cur.confirmPhotos ?? []), ...(cur.photos ?? [])]
+      const remote = candidates.find((u) => u && !String(u).includes('/geo/ws-photos/'))
+      if (remote) {
+        try {
+          const local = await mirrorEvidencePhoto(id, remote, PHOTOS_DIR)
+          if (local) {
+            cur.confirmPhotos = [local, ...(cur.confirmPhotos ?? []).filter((u) => u !== local)]
+            evidence[id] = cur
+          }
+        } catch (err) {
+          console.warn(`[warspotting] mirror ${id}:`, err.message ?? err)
         }
       }
     }

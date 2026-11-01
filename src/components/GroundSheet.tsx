@@ -3,7 +3,7 @@ import { ABROAD_ICON_COLOR } from '../lib/threatIcons'
 import {
   fetchGroundEvidence,
   numericWarspottingId,
-  resolvePhotoUrl,
+  pickEvidencePhotos,
   warspottingViewUrl,
   type GroundLoss,
 } from '../lib/warspotting'
@@ -43,10 +43,8 @@ export function GroundSheet({ loss, onClose }: Props) {
     void (async () => {
       const ev = await fetchGroundEvidence(wsId)
       if (cancelled || !ev) return
-      const preferred = (ev.confirmPhotos?.length ? ev.confirmPhotos : loss.photos ?? []).map(
-        resolvePhotoUrl,
-      )
-      if (preferred.length) setPhotos([...new Set(preferred)].slice(0, 6))
+      const preferred = pickEvidencePhotos(ev, loss.photos ?? [])
+      if (preferred.length) setPhotos(preferred)
       if (ev.sources?.length) setSources(ev.sources)
       if (ev.viewUrl) setViewUrl(ev.viewUrl)
     })()
