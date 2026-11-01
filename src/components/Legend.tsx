@@ -1,4 +1,6 @@
+import { useMemo } from 'react'
 import { THREAT_TYPES } from '../lib/neptun'
+import { threatIconDataUrl } from '../lib/threatIcons'
 
 const items = [
   THREAT_TYPES.uav,
@@ -10,13 +12,27 @@ const items = [
 ]
 
 export function Legend() {
+  const icons = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const item of items) {
+      map.set(item.type, threatIconDataUrl(item.type, item.hex))
+    }
+    return map
+  }, [])
+
   return (
     <div className="legend" aria-label="Легенда">
       <p className="legend-title">Типи</p>
       <ul>
         {items.map((item) => (
           <li key={item.type}>
-            <span className="legend-swatch" style={{ background: item.hex }} />
+            <img
+              className="legend-icon"
+              src={icons.get(item.type)}
+              alt=""
+              width={22}
+              height={22}
+            />
             {item.shortLabel}
           </li>
         ))}

@@ -27,6 +27,7 @@ import {
   isEndedThreat,
   type DisplayThreat,
 } from '../lib/threatDisplay'
+import { iconIdForType, registerThreatIcons } from '../lib/threatIcons'
 
 type Props = {
   threats: DisplayThreat[]
@@ -116,10 +117,18 @@ function buildThreatFeatures(
     const predicted = areaOnly || ended ? null : predict(threat, now)
     const lat = predicted?.lat ?? threat.lat
     const lon = predicted?.lon ?? threat.lon
-    const heading = predicted?.heading ?? threat.heading ?? 0
+    // Prefer kinematics bearing; fall back to reported heading (not SDK hash filler).
+    const courseDeg =
+      threat.velocity?.bearingDeg ??
+      (threat.heading != null && Number.isFinite(threat.heading) ? threat.heading : null)
+    const heading = courseDeg ?? predicted?.heading ?? 0
     const selected = threat.id === selectedId ? 1 : 0
     const nearby = !nearbyIds || nearbyIds.has(threat.id) ? 1 : 0
     const color = ended && threat.endKind ? endKindColor(threat.endKind) : meta.hex
+    const flying = !ended && !areaOnly && predicted?.flying ? 1 : 0
+    // Rotate silhouette whenever we have a real course (not only while dead-reckoning).
+    const rotate = !ended && !areaOnly && courseDeg != null ? 1 : 0
+    const icon = iconIdForType(threat.type, ended ? threat.endKind : null)
 
     points.features.push({
       type: 'Feature',
@@ -129,8 +138,10 @@ function buildThreatFeatures(
         type: threat.type,
         title: threat.title,
         color,
+        icon,
         heading,
-        flying: !ended && predicted?.flying ? 1 : 0,
+        rotate,
+        flying,
         areaOnly: areaOnly ? 1 : 0,
         advisory: advisory || ended ? 1 : 0,
         selected,
@@ -296,6 +307,12 @@ export function MapView({
         map.addSource(TRAILS_SOURCE, { type: 'geojson', data: emptyLines() })
         map.addSource(NEAR_SOURCE, { type: 'geojson', data: emptyPolygons() })
         map.addSource(USER_SOURCE, { type: 'geojson', data: emptyPoints() })
+
+        try {
+          registerThreatIcons(map)
+        } catch (iconErr) {
+          console.warn('Threat icon registration failed', iconErr)
+        }
 
         const addLayerSafe = (layer: AddLayerObject) => {
           try {
@@ -486,133 +503,81 @@ export function MapView({
               ['linear'],
               ['zoom'],
               5,
-              ['case', ['==', ['to-number', ['get', 'areaOnly']], 1], 14, 10],
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 16, 11],
               10,
-              ['case', ['==', ['to-number', ['get', 'areaOnly']], 1], 22, 16],
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 22, 15],
             ],
             'circle-color': ['get', 'color'],
             'circle-opacity': [
               'case',
               ['==', ['to-number', ['get', 'nearby']], 0],
-              0.05,
-              ['==', ['to-number', ['get', 'advisory']], 1],
-              0.12,
-              ['==', ['to-number', ['get', 'areaOnly']], 1],
-              0.16,
+              0.04,
+              ['==', ['to-number', ['get', 'selected']], 1],
               0.28,
+              ['==', ['to-number', ['get', 'ended']], 1],
+              0.1,
+              0.14,
             ],
-            'circle-blur': 0.55,
+            'circle-blur': 0.65,
           },
         })
 
         addLayerSafe({
-          id: 'threat-core',
-          type: 'circle',
+          id: 'threat-icon',
+          type: 'symbol',
           source: THREATS_SOURCE,
-          paint: {
-            'circle-radius': [
+          layout: {
+            'icon-image': ['get', 'icon'],
+            'icon-size': [
               'interpolate',
               ['linear'],
               ['zoom'],
               5,
-              ['case', ['==', ['to-number', ['get', 'areaOnly']], 1], 4.5, 5.5],
+              [
+                'case',
+                ['==', ['to-number', ['get', 'selected']], 1],
+                0.78,
+                ['==', ['to-number', ['get', 'nearby']], 0],
+                0.42,
+                0.62,
+              ],
               10,
-              ['case', ['==', ['to-number', ['get', 'areaOnly']], 1], 6, 8],
+              [
+                'case',
+                ['==', ['to-number', ['get', 'selected']], 1],
+                1.15,
+                ['==', ['to-number', ['get', 'nearby']], 0],
+                0.58,
+                0.92,
+              ],
             ],
-            'circle-color': ['get', 'color'],
-            'circle-stroke-width': [
+            'icon-rotate': [
               'case',
-              ['==', ['to-number', ['get', 'ended']], 1],
-              2.4,
-              ['==', ['to-number', ['get', 'selected']], 1],
-              3.2,
-              ['==', ['to-number', ['get', 'advisory']], 1],
-              1.2,
-              2.2,
+              ['==', ['to-number', ['get', 'rotate']], 1],
+              ['to-number', ['get', 'heading']],
+              0,
             ],
-            'circle-stroke-color': [
-              'case',
-              ['==', ['get', 'endKind'], 'shot_down'],
-              '#c5d0dc',
-              ['==', ['get', 'endKind'], 'vanished'],
-              '#9ca3af',
-              ['==', ['to-number', ['get', 'selected']], 1],
-              '#ffffff',
-              ['==', ['to-number', ['get', 'advisory']], 1],
-              '#9aa6b8',
-              '#0b1220',
+            'icon-rotation-alignment': 'map',
+            'icon-pitch-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'symbol-sort-key': [
+              '-',
+              10,
+              ['to-number', ['get', 'priority']],
             ],
-            'circle-opacity': [
+          },
+          paint: {
+            'icon-opacity': [
               'case',
-              ['==', ['to-number', ['get', 'ended']], 1],
-              0.72,
               ['==', ['to-number', ['get', 'nearby']], 0],
-              0.22,
+              0.28,
+              ['==', ['to-number', ['get', 'ended']], 1],
+              0.85,
               ['==', ['to-number', ['get', 'advisory']], 1],
-              0.6,
-              0.96,
+              0.75,
+              1,
             ],
-          },
-        })
-
-        addLayerSafe({
-          id: 'threat-heading',
-          type: 'symbol',
-          source: THREATS_SOURCE,
-          filter: [
-            'all',
-            ['==', ['to-number', ['get', 'areaOnly']], 0],
-            ['==', ['to-number', ['get', 'flying']], 1],
-            ['==', ['to-number', ['get', 'nearby']], 1],
-            ['==', ['to-number', ['get', 'ended']], 0],
-          ],
-          layout: {
-            'text-field': '▲',
-            'text-size': 13,
-            'text-rotate': ['to-number', ['get', 'heading']],
-            'text-rotation-alignment': 'map',
-            'text-allow-overlap': true,
-            'text-ignore-placement': true,
-            'text-offset': [0, -1.15],
-          },
-          paint: {
-            'text-color': ['get', 'color'],
-            'text-halo-color': '#0b1220',
-            'text-halo-width': 1.4,
-          },
-        })
-
-        addLayerSafe({
-          id: 'threat-ended-mark',
-          type: 'symbol',
-          source: THREATS_SOURCE,
-          filter: ['==', ['to-number', ['get', 'ended']], 1],
-          layout: {
-            'text-field': [
-              'case',
-              ['==', ['get', 'endKind'], 'shot_down'],
-              '✕',
-              '·',
-            ],
-            'text-size': [
-              'case',
-              ['==', ['get', 'endKind'], 'shot_down'],
-              14,
-              18,
-            ],
-            'text-allow-overlap': true,
-            'text-ignore-placement': true,
-          },
-          paint: {
-            'text-color': [
-              'case',
-              ['==', ['get', 'endKind'], 'shot_down'],
-              '#e8eef7',
-              '#9ca3af',
-            ],
-            'text-halo-color': '#0b1220',
-            'text-halo-width': 1.6,
-            'text-opacity': 0.95,
           },
         })
 
@@ -629,7 +594,7 @@ export function MapView({
               'Зникло',
             ],
             'text-size': 11,
-            'text-offset': [0, 1.35],
+            'text-offset': [0, 1.7],
             'text-allow-overlap': true,
             'text-ignore-placement': true,
           },
@@ -659,9 +624,10 @@ export function MapView({
         })
 
         map.on('click', (e) => {
-          const hits = map.queryRenderedFeatures(e.point, {
-            layers: ['threat-core', 'threat-halo'],
-          })
+          const hitLayers = ['threat-icon', 'threat-halo'].filter((id) => map.getLayer(id))
+          const hits = hitLayers.length
+            ? map.queryRenderedFeatures(e.point, { layers: hitLayers })
+            : []
           const id = hits[0]?.properties?.id
           if (typeof id === 'string') {
             onSelectRef.current(id === selectedRef.current ? null : id)
@@ -670,10 +636,10 @@ export function MapView({
           onSelectRef.current(null)
         })
 
-        map.on('mouseenter', 'threat-core', () => {
+        map.on('mouseenter', 'threat-icon', () => {
           map.getCanvas().style.cursor = 'pointer'
         })
-        map.on('mouseleave', 'threat-core', () => {
+        map.on('mouseleave', 'threat-icon', () => {
           map.getCanvas().style.cursor = ''
         })
         map.on('mouseenter', 'threat-halo', () => {

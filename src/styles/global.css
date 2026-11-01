@@ -61,7 +61,6 @@ a {
     linear-gradient(180deg, #0a1220 0%, #070b14 45%, #05080f 100%);
 }
 
-.topbar,
 .map-stage,
 .footer-bar {
   position: relative;
@@ -69,6 +68,8 @@ a {
 }
 
 .topbar {
+  position: relative;
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -281,7 +282,157 @@ a {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  gap: 6px;
+}
+
+.oblast-watch {
+  position: relative;
+  z-index: 40;
+}
+
+.oblast-watch-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 41;
+  width: min(320px, calc(100vw - 28px));
+  max-height: min(70vh, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--bg-elev-solid);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.oblast-watch-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.oblast-watch-sub {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.oblast-watch-warn {
+  margin: 0;
+  color: var(--warn);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.oblast-watch-link {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.78rem;
+  text-decoration: underline;
+}
+
+.oblast-watch-toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.oblast-watch-toolbar button {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: 0.72rem;
+}
+
+.oblast-watch-toolbar button:hover {
+  color: var(--text);
+  border-color: rgba(125, 211, 192, 0.4);
+}
+
+.oblast-watch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  display: grid;
+  gap: 2px;
+}
+
+.oblast-watch-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.82rem;
+}
+
+.oblast-watch-item:hover {
+  background: rgba(125, 211, 192, 0.08);
+}
+
+.oblast-watch-item input {
+  accent-color: var(--accent);
+}
+
+.watch-toasts {
+  position: fixed;
+  z-index: 40;
+  top: auto;
+  bottom: calc(64px + var(--safe-bottom));
+  right: 14px;
+  left: auto;
+  display: grid;
+  gap: 8px;
+  width: min(340px, calc(100vw - 28px));
+  pointer-events: none;
+}
+
+.watch-toast {
+  pointer-events: auto;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 12px 12px 12px 14px;
+  border-radius: 14px;
+  background: var(--bg-elev-solid);
+  border: 1px solid rgba(125, 211, 192, 0.35);
+  box-shadow: var(--shadow);
+  animation: sheet-in 220ms ease;
+}
+
+.watch-toast-title {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.watch-toast-body {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.watch-toast-close {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
 }
 
 .btn-locate {
@@ -452,6 +603,14 @@ a {
   height: 10px;
   border-radius: 50%;
   box-shadow: 0 0 0 2px rgba(11, 18, 32, 0.9);
+}
+
+.legend-icon {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  object-fit: contain;
+  filter: drop-shadow(0 0 1px rgba(11, 18, 32, 0.9));
 }
 
 .legend-swatch.alert {

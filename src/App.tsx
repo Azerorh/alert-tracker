@@ -5,9 +5,11 @@ import { Legend } from './components/Legend'
 import { MapView } from './components/MapView'
 import { ThreatSheet } from './components/ThreatSheet'
 import { TopBar } from './components/TopBar'
+import { WatchToasts } from './components/WatchToasts'
 import { useEnrichedThreats } from './hooks/useEnrichedThreats'
 import { useNeptun } from './hooks/useNeptun'
 import { useNow } from './hooks/useNow'
+import { useOblastWatch } from './hooks/useOblastWatch'
 import { useSourceStatus } from './hooks/useSourceStatus'
 import {
   distanceKm,
@@ -30,6 +32,7 @@ export default function App() {
   } = useEnrichedThreats(snap.threats)
   const { status: sourceStatus, available: bffUp } = useSourceStatus()
   const now = useNow(true)
+  const oblastWatch = useOblastWatch(enrichedThreats, now)
   const [filter, setFilter] = useState<UiFilterKey>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null)
@@ -145,7 +148,20 @@ export default function App() {
         onToggleNearMe={onToggleNearMe}
         sources={sourceStatus?.sources ?? null}
         bffUp={bffUp}
+        oblasts={oblastWatch.oblasts}
+        watchedOblasts={oblastWatch.watched}
+        notifyPermission={
+          typeof Notification === 'undefined' ? 'unsupported' : oblastWatch.permission
+        }
+        onToggleOblast={oblastWatch.toggleOblast}
+        onSelectAllOblasts={oblastWatch.selectAll}
+        onClearOblasts={oblastWatch.clearAll}
+        onRequestNotifyPermission={() => {
+          void oblastWatch.requestPermission()
+        }}
       />
+
+      <WatchToasts toasts={oblastWatch.toasts} onDismiss={oblastWatch.dismissToast} />
 
       <main className="map-stage">
         <MapView

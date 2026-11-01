@@ -1,6 +1,8 @@
 import { threatsLabel, type ConnectionStatus } from '../lib/neptun'
 import { SourceStatus } from './SourceStatus'
+import { OblastWatchMenu } from './OblastWatchMenu'
 import type { SourceHealth } from '../lib/api'
+import type { OblastMeta } from '../lib/oblasts'
 
 type Props = {
   status: ConnectionStatus
@@ -17,6 +19,13 @@ type Props = {
   onToggleNearMe: () => void
   sources: SourceHealth[] | null
   bffUp: boolean
+  oblasts: OblastMeta[]
+  watchedOblasts: string[]
+  notifyPermission: NotificationPermission | 'unsupported'
+  onToggleOblast: (key: string) => void
+  onSelectAllOblasts: () => void
+  onClearOblasts: () => void
+  onRequestNotifyPermission: () => void
 }
 
 function statusLabel(status: ConnectionStatus): string {
@@ -44,6 +53,13 @@ export function TopBar({
   onToggleNearMe,
   sources,
   bffUp,
+  oblasts,
+  watchedOblasts,
+  notifyPermission,
+  onToggleOblast,
+  onSelectAllOblasts,
+  onClearOblasts,
+  onRequestNotifyPermission,
 }: Props) {
   return (
     <header className="topbar">
@@ -81,6 +97,15 @@ export function TopBar({
       </div>
 
       <div className="topbar-actions">
+        <OblastWatchMenu
+          oblasts={oblasts}
+          watched={watchedOblasts}
+          permission={notifyPermission}
+          onToggle={onToggleOblast}
+          onSelectAll={onSelectAllOblasts}
+          onClearAll={onClearOblasts}
+          onRequestPermission={onRequestNotifyPermission}
+        />
         <button
           type="button"
           className={`btn-locate ${nearMe ? 'active' : ''}`}
