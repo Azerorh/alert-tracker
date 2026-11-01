@@ -1,9 +1,12 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { OblastMeta } from '../lib/oblasts'
+import type { OblastNotifyKinds } from '../hooks/useOblastWatch'
 
 type Props = {
   oblasts: OblastMeta[]
   watched: string[]
+  notifyKinds: OblastNotifyKinds
+  onNotifyKindsChange: (patch: Partial<OblastNotifyKinds>) => void
   permission: NotificationPermission | 'unsupported'
   onToggle: (key: string) => void
   onSelectAll: () => void
@@ -14,6 +17,8 @@ type Props = {
 export function OblastWatchMenu({
   oblasts,
   watched,
+  notifyKinds,
+  onNotifyKindsChange,
   permission,
   onToggle,
   onSelectAll,
@@ -49,7 +54,7 @@ export function OblastWatchMenu({
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((v) => !v)}
-        title="Сповіщення, коли загроза зайде в обрані області"
+        title="Сповіщення по обраних областях України"
       >
         Області{watched.length ? ` · ${watched.length}` : ''}
       </button>
@@ -59,8 +64,27 @@ export function OblastWatchMenu({
           <div className="oblast-watch-head">
             <p className="oblast-watch-title">Сповіщення по областях</p>
             <p className="oblast-watch-sub">
-              Браузерне сповіщення, якщо жива загроза зайде в обрану область
+              Оберіть типи сповіщень і області. Після вибору — без стартового спаму.
             </p>
+          </div>
+
+          <div className="oblast-watch-kinds" role="group" aria-label="Типи сповіщень">
+            <label className="oblast-watch-kind">
+              <input
+                type="checkbox"
+                checked={notifyKinds.threats}
+                onChange={(e) => onNotifyKindsChange({ threats: e.target.checked })}
+              />
+              <span>Повітряні об’єкти — заліт в область</span>
+            </label>
+            <label className="oblast-watch-kind">
+              <input
+                type="checkbox"
+                checked={notifyKinds.alerts}
+                onChange={(e) => onNotifyKindsChange({ alerts: e.target.checked })}
+              />
+              <span>Тривога UA — зміна статусу області</span>
+            </label>
           </div>
 
           {permission === 'denied' ? (

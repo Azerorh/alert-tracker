@@ -63,7 +63,8 @@ export async function loadOblastCatalog(): Promise<{
   const list = features
     .map((f) => ({
       key: String(f.properties!.key),
-      name: String(f.properties!.region ?? f.properties!.key),
+      // City features (e.g. Kyiv) use `name`; oblasts use `region`.
+      name: String(f.properties!.region ?? f.properties!.name ?? f.properties!.key),
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'uk'))
   return { list, features }

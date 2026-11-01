@@ -354,17 +354,26 @@ a {
   right: 0;
   z-index: 41;
   /* Viewport-based: parent is only as wide as the "Області" button. */
-  width: min(320px, calc(100vw - 28px));
-  min-width: min(260px, calc(100vw - 28px));
-  max-height: min(70vh, 420px);
+  width: min(360px, calc(100vw - 28px));
+  min-width: min(280px, calc(100vw - 28px));
+  max-height: min(76vh, 560px);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   padding: 12px;
   border-radius: 14px;
   background: var(--bg-elev-solid);
   border: 1px solid var(--line);
   box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.oblast-watch-head,
+.oblast-watch-kinds,
+.oblast-watch-toolbar,
+.oblast-watch-warn,
+.oblast-watch-link {
+  flex-shrink: 0;
 }
 
 .oblast-watch-title {
@@ -398,6 +407,36 @@ a {
   text-decoration: underline;
 }
 
+.oblast-watch-kinds {
+  display: grid;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.oblast-watch-kind {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.oblast-watch-kind input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
 .oblast-watch-toolbar {
   display: flex;
   gap: 8px;
@@ -422,7 +461,11 @@ a {
   list-style: none;
   margin: 0;
   padding: 0;
+  flex: 1 1 auto;
+  min-height: 120px;
   overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   display: grid;
   gap: 2px;
 }
@@ -431,6 +474,7 @@ a {
   display: flex;
   align-items: center;
   gap: 10px;
+  min-height: 36px;
   padding: 7px 8px;
   border-radius: 8px;
   cursor: pointer;
@@ -1231,11 +1275,33 @@ a {
     left: 12px;
     bottom: auto;
     width: auto;
-    max-height: min(62vh, 520px);
+    min-width: 0;
+    max-height: min(72vh, 640px);
     border-radius: 18px;
     z-index: 45;
     box-shadow: var(--shadow);
     animation: menu-drop 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .oblast-watch-kind {
+    min-height: 44px;
+    padding: 10px 6px;
+    font-size: 0.84rem;
+  }
+
+  .oblast-watch-kind input {
+    width: 18px;
+    height: 18px;
+  }
+
+  .oblast-watch-item {
+    min-height: 44px;
+    padding: 10px 8px;
+    font-size: 0.9rem;
+  }
+
+  .oblast-watch-list {
+    min-height: 160px;
   }
 
   .legend {

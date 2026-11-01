@@ -5,12 +5,25 @@ import {
   type OblastMeta,
 } from '../lib/oblasts'
 import { getTypeMeta, predict } from '../lib/neptun'
+import type { AlertLevel, AlertZone } from '../lib/neptun-types'
 import { isActiveTrack, type DisplayThreat } from '../lib/threatDisplay'
 import type { Feature } from 'geojson'
 
 const STORAGE_KEY = 'alert-tracker:watched-oblasts'
+const KINDS_STORAGE_KEY = 'alert-tracker:oblast-notify-kinds'
 /** Soft cap so Windows toast center cannot be flooded. */
 const MIN_NOTIFY_GAP_MS = 2_500
+
+type OblastAlertState = 'clear' | AlertLevel
+
+export type OblastNotifyKinds = {
+  /** Live aerial object entered the oblast. */
+  threats: boolean
+  /** Official UA air-alert status changed for the oblast. */
+  alerts: boolean
+}
+
+const DEFAULT_NOTIFY_KINDS: OblastNotifyKinds = { threats: true, alerts: true }
 
 function readStored(): string[] {
   try {
@@ -31,6 +44,67 @@ function writeStored(keys: string[]) {
   }
 }
 
+function readNotifyKinds(): OblastNotifyKinds {
+  try {
+    const raw = localStorage.getItem(KINDS_STORAGE_KEY)
+    if (!raw) return { ...DEFAULT_NOTIFY_KINDS }
+    const parsed = JSON.parse(raw) as Partial<OblastNotifyKinds>
+    return {
+      threats: parsed.threats !== false,
+      alerts: parsed.alerts !== false,
+    }
+  } catch {
+    return { ...DEFAULT_NOTIFY_KINDS }
+  }
+}
+
+function writeNotifyKinds(kinds: OblastNotifyKinds) {
+  try {
+    localStorage.setItem(KINDS_STORAGE_KEY, JSON.stringify(kinds))
+  } catch {
+    /* ignore quota */
+  }
+}
+
+function levelRank(level: OblastAlertState): number {
+  if (level === 'red') return 2
+  if (level === 'yellow') return 1
+  return 0
+}
+
+function levelLabel(level: OblastAlertState): string {
+  if (level === 'red') return 'повітряна тривога'
+  if (level === 'yellow') return 'увага / жовтий рівень'
+  return 'немає тривоги'
+}
+
+/** Collapse raion + oblast Neptun alerts onto watched oblast keys. */
+function buildWatchedAlertStates(
+  watched: string[],
+  list: OblastMeta[],
+  alertOblasts: AlertZone[],
+  alerts: AlertZone[],
+): Map<string, OblastAlertState> {
+  const watchedSet = new Set(watched)
+  const keyByName = new Map(list.map((o) => [o.name, o.key]))
+  const out = new Map<string, OblastAlertState>()
+  for (const key of watched) out.set(key, 'clear')
+
+  const raise = (key: string, level: AlertLevel | undefined) => {
+    if (!watchedSet.has(key)) return
+    const next: OblastAlertState = level === 'yellow' ? 'yellow' : 'red'
+    const prev = out.get(key) ?? 'clear'
+    if (levelRank(next) > levelRank(prev)) out.set(key, next)
+  }
+
+  for (const zone of alertOblasts) raise(zone.key, zone.level)
+  for (const zone of alerts) {
+    const key = keyByName.get(zone.oblast)
+    if (key) raise(key, zone.level)
+  }
+  return out
+}
+
 export type WatchToast = {
   id: string
   title: string
@@ -39,13 +113,22 @@ export type WatchToast = {
 }
 
 /**
- * Watch selected oblasts; notify only when a live threat *enters*
- * (not for targets already inside when watch is enabled).
+ * Watch selected UA oblasts:
+ * - notify when a live threat *enters*
+ * - notify when official air-alert status changes (after selection baseline)
  */
-export function useOblastWatch(threats: DisplayThreat[], _now: number) {
+export function useOblastWatch(
+  threats: DisplayThreat[],
+  alertOblasts: AlertZone[],
+  alerts: AlertZone[],
+  _now: number,
+) {
   const [list, setList] = useState<OblastMeta[]>([])
   const [watched, setWatched] = useState<string[]>(() =>
     typeof window !== 'undefined' ? readStored() : [],
+  )
+  const [notifyKinds, setNotifyKindsState] = useState<OblastNotifyKinds>(() =>
+    typeof window !== 'undefined' ? readNotifyKinds() : { ...DEFAULT_NOTIFY_KINDS },
   )
   const [permission, setPermission] = useState<NotificationPermission>(() =>
     typeof Notification !== 'undefined' ? Notification.permission : 'denied',
@@ -56,9 +139,13 @@ export function useOblastWatch(threats: DisplayThreat[], _now: number) {
   const insideRef = useRef(new Map<string, string>())
   const prevWatchedRef = useRef<string[]>([])
   const primedRef = useRef(false)
+  const alertPrimedRef = useRef(false)
+  const alertStateRef = useRef(new Map<string, OblastAlertState>())
   const lastNotifyAtRef = useRef(0)
   const threatsRef = useRef(threats)
+  const notifyKindsRef = useRef(notifyKinds)
   threatsRef.current = threats
+  notifyKindsRef.current = notifyKinds
 
   useEffect(() => {
     let cancelled = false
@@ -80,6 +167,16 @@ export function useOblastWatch(threats: DisplayThreat[], _now: number) {
     writeStored(unique)
   }, [])
 
+  const setNotifyKinds = useCallback((patch: Partial<OblastNotifyKinds>) => {
+    setNotifyKindsState((prev) => {
+      const next = { ...prev, ...patch }
+      // Keep at least one channel on — turning both off is confusing.
+      if (!next.threats && !next.alerts) return prev
+      writeNotifyKinds(next)
+      return next
+    })
+  }, [])
+
   const requestPermission = useCallback(async () => {
     if (typeof Notification === 'undefined') return 'denied' as NotificationPermission
     if (Notification.permission === 'granted') {
@@ -91,7 +188,7 @@ export function useOblastWatch(threats: DisplayThreat[], _now: number) {
     return res
   }, [])
 
-  const pushAlert = useCallback((title: string, body: string) => {
+  const pushAlert = useCallback((title: string, body: string, tag: string) => {
     const now = Date.now()
     // Always keep a short in-app toast; throttle OS notifications harder.
     const id = `${now}-${Math.random().toString(36).slice(2, 7)}`
@@ -103,7 +200,7 @@ export function useOblastWatch(threats: DisplayThreat[], _now: number) {
     try {
       new Notification(title, {
         body,
-        tag: `oblast-enter-${title}`,
+        tag,
         silent: false,
       })
     } catch {
@@ -141,6 +238,8 @@ export function useOblastWatch(threats: DisplayThreat[], _now: number) {
     insideRef.current.clear()
     prevWatchedRef.current = []
     primedRef.current = false
+    alertPrimedRef.current = false
+    alertStateRef.current.clear()
   }, [persist])
 
   /** Mark everyone currently inside `keys` as already known — no alerts. */
@@ -208,11 +307,13 @@ export function useOblastWatch(threats: DisplayThreat[], _now: number) {
 
       // Real enter: was outside watched area, or came from another oblast.
       insideRef.current.set(threat.id, key)
+      if (!notifyKindsRef.current.threats) continue
       const meta = getTypeMeta(threat.type)
       const oblastName = nameByKey.get(key) ?? key
       pushAlert(
         `${meta.shortLabel} · ${oblastName}`,
         threat.title || `Загроза зайшла в «${oblastName}»`,
+        `oblast-enter-${key}-${threat.id}`,
       )
     }
 
@@ -220,6 +321,59 @@ export function useOblastWatch(threats: DisplayThreat[], _now: number) {
       if (!seen.has(id)) insideRef.current.delete(id)
     }
   }, [threats, watched, list, pushAlert, seedSilent])
+
+  // Official UA air-alert status changes for watched oblasts only
+  useEffect(() => {
+    if (!watched.length || !list.length) {
+      alertPrimedRef.current = false
+      alertStateRef.current.clear()
+      return
+    }
+
+    const next = buildWatchedAlertStates(watched, list, alertOblasts, alerts)
+    const nameByKey = new Map(list.map((o) => [o.key, o.name]))
+
+    if (!alertPrimedRef.current) {
+      alertStateRef.current = next
+      alertPrimedRef.current = true
+      return
+    }
+
+    // Newly checked oblasts: baseline their current status silently.
+    for (const key of watched) {
+      if (!alertStateRef.current.has(key)) {
+        alertStateRef.current.set(key, next.get(key) ?? 'clear')
+      }
+    }
+    // Drop unwatched
+    for (const key of [...alertStateRef.current.keys()]) {
+      if (!watched.includes(key)) alertStateRef.current.delete(key)
+    }
+
+    for (const key of watched) {
+      const prev = alertStateRef.current.get(key) ?? 'clear'
+      const cur = next.get(key) ?? 'clear'
+      if (prev === cur) continue
+      alertStateRef.current.set(key, cur)
+      if (!notifyKindsRef.current.alerts) continue
+      const oblastName = nameByKey.get(key) ?? key
+      if (prev === 'clear' && cur !== 'clear') {
+        pushAlert(
+          `Тривога · ${oblastName}`,
+          `Оголошено: ${levelLabel(cur)}`,
+          `oblast-alert-${key}`,
+        )
+      } else if (prev !== 'clear' && cur === 'clear') {
+        pushAlert(`Відбій · ${oblastName}`, 'Повітряну тривогу скасовано', `oblast-alert-${key}`)
+      } else {
+        pushAlert(
+          `Статус · ${oblastName}`,
+          `${levelLabel(prev)} → ${levelLabel(cur)}`,
+          `oblast-alert-${key}`,
+        )
+      }
+    }
+  }, [alertOblasts, alerts, watched, list, pushAlert])
 
   // Auto-dismiss toasts
   useEffect(() => {
@@ -235,6 +389,8 @@ export function useOblastWatch(threats: DisplayThreat[], _now: number) {
     oblasts: list,
     watched,
     watchedCount: watched.length,
+    notifyKinds,
+    setNotifyKinds,
     permission,
     toasts,
     toggleOblast,

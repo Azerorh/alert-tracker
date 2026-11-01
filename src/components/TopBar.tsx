@@ -5,6 +5,7 @@ import { SourceStatus } from './SourceStatus'
 import { OblastWatchMenu } from './OblastWatchMenu'
 import type { SourceHealth } from '../lib/api'
 import type { OblastMeta } from '../lib/oblasts'
+import type { OblastNotifyKinds } from '../hooks/useOblastWatch'
 
 type Props = {
   mapMode: MapMode
@@ -25,6 +26,8 @@ type Props = {
   bffUp: boolean
   oblasts: OblastMeta[]
   watchedOblasts: string[]
+  notifyKinds: OblastNotifyKinds
+  onNotifyKindsChange: (patch: Partial<OblastNotifyKinds>) => void
   notifyPermission: NotificationPermission | 'unsupported'
   onToggleOblast: (key: string) => void
   onSelectAllOblasts: () => void
@@ -61,6 +64,8 @@ export function TopBar({
   bffUp,
   oblasts,
   watchedOblasts,
+  notifyKinds,
+  onNotifyKindsChange,
   notifyPermission,
   onToggleOblast,
   onSelectAllOblasts,
@@ -200,6 +205,8 @@ export function TopBar({
             <OblastWatchMenu
               oblasts={oblasts}
               watched={watchedOblasts}
+              notifyKinds={notifyKinds}
+              onNotifyKindsChange={onNotifyKindsChange}
               permission={notifyPermission}
               onToggle={onToggleOblast}
               onSelectAll={onSelectAllOblasts}

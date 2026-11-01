@@ -53,7 +53,7 @@ export default function App() {
   } = useEnrichedThreats(snap.threats)
   const { status: sourceStatus, available: bffUp } = useSourceStatus()
   const now = useNow(true)
-  const oblastWatch = useOblastWatch(enrichedThreats, now)
+  const oblastWatch = useOblastWatch(enrichedThreats, snap.alertOblasts, snap.alerts, now)
   const dsm = useDroneStrikeLayer()
   const ruAlerts = useRuAlerts()
   const [mapMode, setMapMode] = useState<MapMode>('air')
@@ -280,6 +280,8 @@ export default function App() {
         bffUp={bffUp}
         oblasts={oblastWatch.oblasts}
         watchedOblasts={oblastWatch.watched}
+        notifyKinds={oblastWatch.notifyKinds}
+        onNotifyKindsChange={oblastWatch.setNotifyKinds}
         notifyPermission={
           typeof Notification === 'undefined' ? 'unsupported' : oblastWatch.permission
         }
