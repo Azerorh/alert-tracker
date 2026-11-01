@@ -340,6 +340,11 @@ export function enrichThreatWithMapa(threat: Threat, match: MapaMatch | MapaObje
   const uncFromDist = Math.min(14, 3 + m.distKm * 0.35)
   const unc = disagree ? Math.max(uncFromDist, 10) : Math.min(uncFromDist, goodScore ? 8 : 12)
 
+  const mapaCount =
+    obj.amount != null && Number.isFinite(obj.amount) && obj.amount > 0
+      ? Math.round(obj.amount)
+      : undefined
+
   return {
     ...threat,
     lat,
@@ -353,5 +358,6 @@ export function enrichThreatWithMapa(threat: Threat, match: MapaMatch | MapaObje
     confirmedAt,
     uncertaintyKm: unc,
     positionQuality: hasPredicted || goodScore ? 'mapa' : 'approx',
+    count: Math.max(threat.count ?? 0, mapaCount ?? 0) || threat.count,
   }
 }

@@ -3,6 +3,13 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: [main]
+    # Snapshot-only commits are polled via raw.githubusercontent.com — skip full Pages rebuild.
+    paths-ignore:
+      - 'public/geo/ru-alerts.json'
+      - 'public/geo/dsm-ru.json'
+  schedule:
+    # Occasional full rebuild so dist/ also embeds recent snapshots.
+    - cron: '0 */6 * * *'
   workflow_dispatch:
 
 permissions:

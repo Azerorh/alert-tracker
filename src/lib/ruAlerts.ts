@@ -280,33 +280,54 @@ async function fetchJson(urls: string[]): Promise<unknown> {
   throw lastErr instanceof Error ? lastErr : new Error('RU alerts unavailable')
 }
 
+/** Public raw file — CORS OK, refreshed by scheduled Actions (~10 min). */
+const GITHUB_RAW_RU_ALERTS =
+  'https://raw.githubusercontent.com/Azerorh/alert-tracker/main/public/geo/ru-alerts.json'
+
+function cacheBust(url: string): string {
+  const t = Math.floor(Date.now() / 60_000)
+  return `${url}${url.includes('?') ? '&' : '?'}t=${t}`
+}
+
 export async function fetchRuAlertSnapshot(): Promise<RuAlertZone[] | null> {
-  try {
-    const base = import.meta.env.BASE_URL || '/'
-    const res = await fetch(`${base}geo/ru-alerts.json`)
-    if (!res.ok) return null
-    const json = (await res.json()) as { alerts?: RuAlertZone[] }
-    return Array.isArray(json.alerts) ? json.alerts : []
-  } catch {
-    return null
+  const base = import.meta.env.BASE_URL || '/'
+  const urls = [
+    cacheBust(`${base}geo/ru-alerts.json`),
+    cacheBust(GITHUB_RAW_RU_ALERTS),
+  ]
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { cache: 'no-cache' })
+      if (!res.ok) continue
+      const json = (await res.json()) as { alerts?: RuAlertZone[] }
+      if (Array.isArray(json.alerts)) return json.alerts
+    } catch {
+      /* try next */
+    }
   }
+  return null
 }
 
 export async function fetchRuAlertZones(): Promise<RuAlertZone[]> {
-  const batches = await Promise.allSettled([
-    fetchJson([apiUrl('/api/radar-map/state'), RADAR_MAP_STATE_URL]).then(parseRadarMapState),
+  // Live (BFF / upstream) in parallel with static snapshots for GitHub Pages.
+  const livePromise = Promise.allSettled([
+    fetchJson([apiUrl('/api/radar-map/state'), RADAR_MAP_STATE_URL]).then(
+      parseRadarMapState,
+    ),
     fetchJson([
       apiUrl('/api/dsm/alerts'),
       'https://dronestrikemap.com/api/alerts',
     ]).then(parseDsmRuAlerts),
-  ])
-  const parts: RuAlertZone[][] = []
-  for (const b of batches) {
-    if (b.status === 'fulfilled') parts.push(b.value)
-  }
-  if (parts.length) return mergeAlerts(parts[0] ?? [], parts[1] ?? [])
+  ]).then((batches) => {
+    const parts: RuAlertZone[][] = []
+    for (const b of batches) {
+      if (b.status === 'fulfilled') parts.push(b.value)
+    }
+    return parts.length ? mergeAlerts(parts[0] ?? [], parts[1] ?? []) : null
+  })
 
-  const snap = await fetchRuAlertSnapshot()
-  if (snap && snap.length > 0) return snap
+  const [live, snap] = await Promise.all([livePromise, fetchRuAlertSnapshot()])
+  if (live) return live
+  if (snap) return snap
   throw new Error('RU alerts unavailable')
 }

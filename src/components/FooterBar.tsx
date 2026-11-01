@@ -32,7 +32,8 @@ export function FooterBar() {
         тривоги РФ:{' '}
         <a href={RADAR_MAP_URL} target="_blank" rel="noreferrer">
           RadarMap
-        </a>
+        </a>{' '}
+        (на Pages — снапшот ~10 хв)
         {' · '}
         окупація:{' '}
         <a href={DEEPSTATE_ATTRIBUTION_URL} target="_blank" rel="noreferrer">

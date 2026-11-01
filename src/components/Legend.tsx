@@ -17,6 +17,7 @@ export function Legend() {
     for (const item of items) {
       map.set(item.type, threatIconDataUrl(item.type, item.hex))
     }
+    map.set('uav-group', threatIconDataUrl('uav', undefined, false, true))
     map.set('dsm', threatIconDataUrl('uav', undefined, true))
     map.set('fire', flameIconDataUrl())
     return map
@@ -38,6 +39,16 @@ export function Legend() {
             {item.shortLabel}
           </li>
         ))}
+        <li>
+          <img
+            className="legend-icon"
+            src={icons.get('uav-group')}
+            alt=""
+            width={22}
+            height={22}
+          />
+          БпЛА · група
+        </li>
         <li>
           <img className="legend-icon" src={icons.get('dsm')} alt="" width={22} height={22} />
           Удари по РФ (24 год)

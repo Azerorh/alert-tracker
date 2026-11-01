@@ -153,7 +153,8 @@ function buildThreatFeatures(
     const color = ended && threat.endKind ? endKindColor(threat.endKind) : meta.hex
     const flying = !ended && !areaOnly && predicted?.flying ? 1 : 0
     const rotate = !ended && !areaOnly && courseDeg != null ? 1 : 0
-    const icon = iconIdForType(threat.type, ended ? threat.endKind : null, false)
+    const isGroup = threat.type === 'uav' && !ended && (threat.count ?? 0) > 1
+    const icon = iconIdForType(threat.type, ended ? threat.endKind : null, false, isGroup)
 
     points.features.push({
       type: 'Feature',

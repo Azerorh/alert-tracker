@@ -22,12 +22,14 @@ export function iconIdForType(
   type: string,
   ended?: ThreatEndKind | '' | null,
   abroad = false,
+  group = false,
 ): string {
   const t = (THREAT_ICON_TYPES as string[]).includes(type) ? type : 'unknown'
-  if (ended === 'shot_down') return `threat-${t}-shot`
-  if (ended === 'vanished') return `threat-${t}-vanished`
-  if (abroad) return `threat-${t}-abroad`
-  return `threat-${t}`
+  const g = group && t === 'uav' ? '-group' : ''
+  if (ended === 'shot_down') return `threat-${t}${g}-shot`
+  if (ended === 'vanished') return `threat-${t}${g}-vanished`
+  if (abroad) return `threat-${t}${g}-abroad`
+  return `threat-${t}${g}`
 }
 
 function strokeRound(ctx: CanvasRenderingContext2D, hex: string, width = 3) {
@@ -38,6 +40,63 @@ function strokeRound(ctx: CanvasRenderingContext2D, hex: string, width = 3) {
   ctx.lineCap = 'round'
 }
 
+/** Shahed-like delta / flying-wing (nose up). scale 1 = single, ~0.72 for stacked group. */
+function drawUavDelta(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  hex: string,
+  scale = 1,
+) {
+  strokeRound(ctx, hex, 3.2 * Math.min(1, scale + 0.15))
+  const s = scale
+  ctx.beginPath()
+  ctx.moveTo(cx, cy - 22 * s)
+  ctx.lineTo(cx + 6 * s, cy - 8 * s)
+  ctx.lineTo(cx + 22 * s, cy + 10 * s)
+  ctx.lineTo(cx + 8 * s, cy + 6 * s)
+  ctx.lineTo(cx + 5 * s, cy + 18 * s)
+  ctx.lineTo(cx, cy + 12 * s)
+  ctx.lineTo(cx - 5 * s, cy + 18 * s)
+  ctx.lineTo(cx - 8 * s, cy + 6 * s)
+  ctx.lineTo(cx - 22 * s, cy + 10 * s)
+  ctx.lineTo(cx - 6 * s, cy - 8 * s)
+  ctx.closePath()
+  ctx.fill()
+  ctx.globalCompositeOperation = 'destination-out'
+  ctx.beginPath()
+  ctx.arc(cx, cy - 2 * s, 2.4 * s, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.globalCompositeOperation = 'source-over'
+}
+
+/** Same UAV silhouette + small “+” badge for groups (count > 1). */
+function drawUavGroup(ctx: CanvasRenderingContext2D, hex: string) {
+  const cx = SIZE / 2
+  const cy = SIZE / 2
+  drawUavDelta(ctx, cx, cy, hex, 1)
+
+  const bx = cx + 16
+  const by = cy + 15
+  ctx.beginPath()
+  ctx.arc(bx, by, 8, 0, Math.PI * 2)
+  ctx.fillStyle = hex
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(11, 18, 32, 0.9)'
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+
+  ctx.strokeStyle = 'rgba(11, 18, 32, 0.92)'
+  ctx.lineWidth = 2.4
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(bx - 3.5, by)
+  ctx.lineTo(bx + 3.5, by)
+  ctx.moveTo(bx, by - 3.5)
+  ctx.lineTo(bx, by + 3.5)
+  ctx.stroke()
+}
+
 /** Draw silhouette into a centered 64×64 canvas; nose points up (0° = north). */
 function drawSilhouette(ctx: CanvasRenderingContext2D, type: ThreatType, hex: string) {
   const cx = SIZE / 2
@@ -46,26 +105,7 @@ function drawSilhouette(ctx: CanvasRenderingContext2D, type: ThreatType, hex: st
 
   switch (type) {
     case 'uav': {
-      // Shahed-like delta / flying-wing (nose up)
-      ctx.beginPath()
-      ctx.moveTo(cx, cy - 22) // nose
-      ctx.lineTo(cx + 6, cy - 8)
-      ctx.lineTo(cx + 22, cy + 10) // right wing tip
-      ctx.lineTo(cx + 8, cy + 6)
-      ctx.lineTo(cx + 5, cy + 18) // right rear
-      ctx.lineTo(cx, cy + 12) // center rear notch
-      ctx.lineTo(cx - 5, cy + 18)
-      ctx.lineTo(cx - 8, cy + 6)
-      ctx.lineTo(cx - 22, cy + 10) // left wing tip
-      ctx.lineTo(cx - 6, cy - 8)
-      ctx.closePath()
-      ctx.fill()
-      // small intake / hub
-      ctx.globalCompositeOperation = 'destination-out'
-      ctx.beginPath()
-      ctx.arc(cx, cy - 2, 2.4, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.globalCompositeOperation = 'source-over'
+      drawUavDelta(ctx, cx, cy, hex, 1)
       break
     }
     case 'fpv': {
@@ -219,6 +259,7 @@ export function renderThreatIcon(
   _hex?: string,
   ended?: ThreatEndKind | null,
   abroad = false,
+  group = false,
 ): ImageData {
   const canvas = document.createElement('canvas')
   canvas.width = SIZE
@@ -246,9 +287,11 @@ export function renderThreatIcon(
     ? (type as ThreatType)
     : 'unknown'
   const fill = ended ? endKindColor(ended) : liveFill
+  const asGroup = group && t === 'uav'
   void _hex
   if (ended) ctx.globalAlpha = ended === 'vanished' ? 0.55 : 0.8
-  drawSilhouette(ctx, t, fill)
+  if (asGroup) drawUavGroup(ctx, fill)
+  else drawSilhouette(ctx, t, fill)
   ctx.globalAlpha = 1
   if (ended) withBadge(ctx, ended)
 
@@ -301,16 +344,19 @@ export function registerThreatIcons(map: {
   addImage: (id: string, image: ImageData | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }, opts?: { pixelRatio?: number }) => void
 }): void {
   for (const type of THREAT_ICON_TYPES) {
-    const variants: Array<{ id: string; ended?: ThreatEndKind; abroad?: boolean }> = [
-      { id: iconIdForType(type) },
-      { id: iconIdForType(type, null, true), abroad: true },
-      { id: iconIdForType(type, 'shot_down'), ended: 'shot_down' },
-      { id: iconIdForType(type, 'vanished'), ended: 'vanished' },
-    ]
-    for (const v of variants) {
-      if (map.hasImage(v.id)) continue
-      const img = renderThreatIcon(type, undefined, v.ended, Boolean(v.abroad))
-      map.addImage(v.id, img, { pixelRatio: 2 })
+    const groupOpts = type === 'uav' ? [false, true] : [false]
+    for (const group of groupOpts) {
+      const variants: Array<{ id: string; ended?: ThreatEndKind; abroad?: boolean }> = [
+        { id: iconIdForType(type, null, false, group) },
+        { id: iconIdForType(type, null, true, group), abroad: true },
+        { id: iconIdForType(type, 'shot_down', false, group), ended: 'shot_down' },
+        { id: iconIdForType(type, 'vanished', false, group), ended: 'vanished' },
+      ]
+      for (const v of variants) {
+        if (map.hasImage(v.id)) continue
+        const img = renderThreatIcon(type, undefined, v.ended, Boolean(v.abroad), group)
+        map.addImage(v.id, img, { pixelRatio: 2 })
+      }
     }
   }
   if (!map.hasImage(FIRE_ICON_ID)) {
@@ -334,6 +380,7 @@ export function threatIconDataUrl(
   type: ThreatType | string,
   _hex?: string,
   abroad = false,
+  group = false,
 ): string {
   const t = (THREAT_ICON_TYPES as string[]).includes(type)
     ? (type as ThreatType)
@@ -349,6 +396,8 @@ export function threatIconDataUrl(
   ctx.arc(SIZE / 2, SIZE / 2, 30, 0, Math.PI * 2)
   ctx.fillStyle = abroad ? 'rgba(40, 8, 8, 0.82)' : 'rgba(11, 18, 32, 0.78)'
   ctx.fill()
-  drawSilhouette(ctx, t, abroad ? ABROAD_ICON_COLOR : '#ffffff')
+  const fill = abroad ? ABROAD_ICON_COLOR : '#ffffff'
+  if (group && t === 'uav') drawUavGroup(ctx, fill)
+  else drawSilhouette(ctx, t, fill)
   return canvas.toDataURL('image/png')
 }
