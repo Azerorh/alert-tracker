@@ -100,6 +100,7 @@ type Props = {
 }
 
 const THREATS_SOURCE = 'threats'
+const THREAT_UNCERTAINTY_SOURCE = 'threat-uncertainty'
 const TRAILS_SOURCE = 'trails'
 const RAIONS_SOURCE = 'raions'
 const OBLASTS_SOURCE = 'oblasts'
@@ -236,13 +237,18 @@ function emptyPolygons(): FeatureCollection {
   return { type: 'FeatureCollection', features: [] }
 }
 
-/** Approximate geodesic circle for near-me radius ring. */
-function circlePolygon(lon: number, lat: number, radiusKm: number, steps = 64): FeatureCollection {
+/** Geodesic ring in km — true map distance (not zoom-dependent pixel radius). */
+function circleRingCoords(
+  lon: number,
+  lat: number,
+  radiusKm: number,
+  steps = 48,
+): [number, number][] {
   const coords: [number, number][] = []
   const R = 6371
   const lat1 = (lat * Math.PI) / 180
   const lon1 = (lon * Math.PI) / 180
-  const angDist = radiusKm / R
+  const angDist = Math.max(0.05, radiusKm) / R
   for (let i = 0; i <= steps; i++) {
     const bearing = (i / steps) * 2 * Math.PI
     const lat2 = Math.asin(
@@ -257,13 +263,18 @@ function circlePolygon(lon: number, lat: number, radiusKm: number, steps = 64): 
       )
     coords.push([(lon2 * 180) / Math.PI, (lat2 * 180) / Math.PI])
   }
+  return coords
+}
+
+/** Approximate geodesic circle for near-me radius ring. */
+function circlePolygon(lon: number, lat: number, radiusKm: number, steps = 64): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: [
       {
         type: 'Feature',
         properties: {},
-        geometry: { type: 'Polygon', coordinates: [coords] },
+        geometry: { type: 'Polygon', coordinates: [circleRingCoords(lon, lat, radiusKm, steps)] },
       },
     ],
   }
@@ -278,6 +289,7 @@ function buildThreatFeatures(
 ) {
   const points: FeatureCollection<Point> = { type: 'FeatureCollection', features: [] }
   const trails: FeatureCollection<LineString> = { type: 'FeatureCollection', features: [] }
+  const uncertainty: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
   for (const threat of threats) {
     if (!matchesUiFilter(threat.type, filter)) continue
@@ -315,6 +327,11 @@ function buildThreatFeatures(
       overRussia,
       isGroup,
     )
+    const uncertaintyKm = ended
+      ? 3
+      : (threat.uncertaintyKm ??
+        (threat.positionQuality === 'confirmed' || threat.positionQuality === 'mapa' ? 5 : 10))
+    const approx = threat.positionQuality === 'approx' || areaOnly || ended ? 1 : 0
 
     points.features.push({
       type: 'Feature',
@@ -334,15 +351,31 @@ function buildThreatFeatures(
         nearby,
         ended: ended ? 1 : 0,
         endKind,
-        uncertaintyKm: ended
-          ? 3
-          : (threat.uncertaintyKm ??
-            (threat.positionQuality === 'confirmed' || threat.positionQuality === 'mapa' ? 5 : 10)),
+        uncertaintyKm,
         priority: ended ? 0 : meta.priority,
-        approx: threat.positionQuality === 'approx' || areaOnly || ended ? 1 : 0,
+        approx,
       },
       geometry: { type: 'Point', coordinates: [lon, lat] },
     })
+
+    // True km ring (geodesic) — old pixel radius grew with zoom and looked like false range.
+    if (!areaOnly && nearby && Number.isFinite(uncertaintyKm) && uncertaintyKm > 0) {
+      uncertainty.features.push({
+        type: 'Feature',
+        properties: {
+          id: threat.id,
+          color,
+          nearby,
+          approx,
+          selected,
+          ended: ended ? 1 : 0,
+        },
+        geometry: {
+          type: 'Polygon',
+          coordinates: [circleRingCoords(lon, lat, Math.min(uncertaintyKm, 35), 40)],
+        },
+      })
+    }
 
     // Keep trail for vanished ghosts; shot_down stays icon-only (as before).
     const showTrail =
@@ -371,7 +404,7 @@ function buildThreatFeatures(
     }
   }
 
-  return { points, trails }
+  return { points, trails, uncertainty }
 }
 
 /** All DSM RU hits (24h) → flame markers (reported impacts, not live tracks). */
@@ -839,6 +872,7 @@ export function MapView({
           promoteId: 'key',
         })
         map.addSource(THREATS_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(THREAT_UNCERTAINTY_SOURCE, { type: 'geojson', data: emptyPolygons() })
         map.addSource(TRAILS_SOURCE, { type: 'geojson', data: emptyLines() })
         map.addSource(NEAR_SOURCE, { type: 'geojson', data: emptyPolygons() })
         map.addSource(USER_SOURCE, { type: 'geojson', data: emptyPoints() })
@@ -1307,41 +1341,22 @@ export function MapView({
           },
         })
 
-        // Uncertainty halo ≈ report precision (city/corridor), not radar CEP
+        // Uncertainty ≈ report precision in real km (geodesic), not zoom-scaled pixels.
         addLayerSafe({
           id: 'threat-uncertainty',
-          type: 'circle',
-          source: THREATS_SOURCE,
-          filter: ['==', ['to-number', ['get', 'areaOnly']], 0],
+          type: 'fill',
+          source: THREAT_UNCERTAINTY_SOURCE,
           paint: {
-            'circle-radius': [
-              'interpolate',
-              ['exponential', 2],
-              ['zoom'],
-              5,
-              ['*', ['to-number', ['get', 'uncertaintyKm']], 1.1],
-              8,
-              ['*', ['to-number', ['get', 'uncertaintyKm']], 3.2],
-              11,
-              ['*', ['to-number', ['get', 'uncertaintyKm']], 9],
-            ],
-            'circle-color': ['get', 'color'],
-            'circle-opacity': [
+            'fill-color': ['get', 'color'],
+            'fill-opacity': [
               'case',
               ['==', ['to-number', ['get', 'nearby']], 0],
               0.03,
               ['==', ['to-number', ['get', 'approx']], 1],
-              0.14,
-              0.1,
-            ],
-            'circle-stroke-color': ['get', 'color'],
-            'circle-stroke-width': 1,
-            'circle-stroke-opacity': [
-              'case',
-              ['==', ['to-number', ['get', 'nearby']], 0],
+              0.12,
               0.08,
-              0.35,
             ],
+            'fill-outline-color': ['get', 'color'],
           },
         })
 
@@ -1989,14 +2004,15 @@ export function MapView({
     if (!map || !ready || mapMode !== 'air') return
     const srcPoints = map.getSource(THREATS_SOURCE) as GeoJSONSource | undefined
     const srcTrails = map.getSource(TRAILS_SOURCE) as GeoJSONSource | undefined
-    if (!srcPoints || !srcTrails) return
+    const srcUnc = map.getSource(THREAT_UNCERTAINTY_SOURCE) as GeoJSONSource | undefined
+    if (!srcPoints || !srcTrails || !srcUnc) return
 
     let raf = 0
     let lastPaint = 0
     const paint = (ts: number) => {
       if (ts - lastPaint >= 33) {
         lastPaint = ts
-        const { points, trails } = buildThreatFeatures(
+        const { points, trails, uncertainty } = buildThreatFeatures(
           threatsRef.current,
           Date.now(),
           filterRef.current,
@@ -2005,6 +2021,7 @@ export function MapView({
         )
         srcPoints.setData(points)
         srcTrails.setData(trails)
+        srcUnc.setData(uncertainty)
       }
       raf = requestAnimationFrame(paint)
     }
