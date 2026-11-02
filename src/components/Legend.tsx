@@ -60,26 +60,35 @@ export function Legend({ mode = 'air' }: Props) {
 
   if (mode === 'light') {
     return (
-      <div className="legend" aria-label="Легенда">
-        <p className="legend-title">Світло · черги зараз</p>
+      <div className="legend legend-compact" aria-label="Легенда">
+        <p className="legend-title">Світло</p>
         <ul>
           <li>
             <span className="legend-swatch power-ok" />
-            Мало / немає відкл. у графіку
+            Мало відкл.
           </li>
           <li>
             <span className="legend-swatch power-mid" />
-            Частина черг без світла
+            Частина черг
           </li>
           <li>
             <span className="legend-swatch power-high" />
-            Багато черг без світла
+            Багато черг
+          </li>
+          <li>
+            <span className="legend-swatch power-signal" />
+            Зона TG (буфер)
+          </li>
+          <li>
+            <span className="legend-swatch power-tg" />
+            Точка TG
+          </li>
+          <li>
+            <span className="legend-swatch power-queue" />
+            Моя черга
           </li>
         </ul>
-        <p className="legend-note">
-          Орієнтовно за опублікованими графіками ОСР (не істина в останній інстанції). Не
-          гарантує світло в конкретному будинку; можливі аварії та затримки.
-        </p>
+        <p className="legend-note">Орієнтовно · не черга / не будинок</p>
       </div>
     )
   }

@@ -423,6 +423,60 @@ app.get('/api/rf-sightings', async (c) => {
   })
 })
 
+const YASNO_ADDR =
+  'https://app.yasno.ua/api/blackout-service/public/shutdowns/addresses/v2'
+const YASNO_UA = {
+  Accept: 'application/json',
+  'User-Agent': 'alert-tracker-power-queue/1.0',
+}
+
+async function proxyYasnoAddress(path: string, query: Record<string, string>) {
+  const url = new URL(`${YASNO_ADDR}/${path}`)
+  for (const [k, v] of Object.entries(query)) {
+    if (v) url.searchParams.set(k, v)
+  }
+  const res = await fetch(url, { headers: YASNO_UA })
+  const text = await res.text()
+  let body: unknown = text
+  try {
+    body = JSON.parse(text)
+  } catch {
+    /* keep text */
+  }
+  return { ok: res.ok, status: res.status, body }
+}
+
+app.get('/api/power-queue/yasno/:action', async (c) => {
+  const action = c.req.param('action')
+  if (!['streets', 'houses', 'group', 'cities', 'regions'].includes(action)) {
+    return c.json({ error: 'unknown action' }, 400)
+  }
+  try {
+    if (action === 'regions') {
+      const hit = await proxyYasnoAddress('regions', {})
+      return c.json(hit.body, hit.ok ? 200 : hit.status)
+    }
+    const q = c.req.query()
+    const regionId = q.regionId
+    const dsoId = q.dsoId
+    if (!regionId || !dsoId) {
+      return c.json({ error: 'regionId and dsoId required' }, 400)
+    }
+    const params: Record<string, string> = { regionId, dsoId }
+    if (q.cityId) params.cityId = q.cityId
+    if (q.query) params.query = q.query
+    if (q.streetId) params.streetId = q.streetId
+    if (q.houseId) params.houseId = q.houseId
+    const hit = await proxyYasnoAddress(action, params)
+    return c.json(hit.body, hit.ok ? 200 : hit.status)
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      503,
+    )
+  }
+})
+
 async function readGeoConfirmedSnapshotFile() {
   try {
     const { readFile } = await import('node:fs/promises')

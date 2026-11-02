@@ -7,6 +7,9 @@ import { GroundSheet } from './components/GroundSheet'
 import { Legend } from './components/Legend'
 import { MapView } from './components/MapView'
 import { PowerOutageSheet } from './components/PowerOutageSheet'
+import { PowerQueueBar } from './components/PowerQueueBar'
+import { PowerQueueSheet } from './components/PowerQueueSheet'
+import { PowerTgSheet } from './components/PowerTgSheet'
 import { SightingSheet } from './components/SightingSheet'
 import { ThreatSheet } from './components/ThreatSheet'
 import { TopBar } from './components/TopBar'
@@ -19,9 +22,13 @@ import { useDroneStrikeLayer } from './hooks/useDroneStrikeLayer'
 import { useDsUnits } from './hooks/useDsUnits'
 import { useGeoConfirmedGround } from './hooks/useGeoConfirmedGround'
 import { usePowerOutages } from './hooks/usePowerOutages'
+import { usePowerQueue } from './hooks/usePowerQueue'
+import { usePowerTgOutages } from './hooks/usePowerTgOutages'
 import { useRfSightings } from './hooks/useRfSightings'
 import { useRuAlerts } from './hooks/useRuAlerts'
 import { parsePowerSelectId, powerOblastByKey } from './lib/powerOutages'
+import { POWER_QUEUE_SELECT_ID } from './lib/powerQueue'
+import { parsePowerTgSelectId, powerTgById } from './lib/powerTgOutages'
 import { findDsmDisplayThreat } from './lib/droneStrikeMap'
 import {
   gcMarkerToLoss,
@@ -65,6 +72,8 @@ export default function App() {
   const gcGround = useGeoConfirmedGround(mapMode === 'ground')
   const dsUnits = useDsUnits(mapMode === 'ground')
   const power = usePowerOutages(mapMode === 'light')
+  const powerTg = usePowerTgOutages(mapMode === 'light')
+  const myQueue = usePowerQueue(power.payload, mapMode === 'light')
   const [filter, setFilter] = useState<UiFilterKey>('all')
   const [groundFilter, setGroundFilter] = useState<GroundFilterKey>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -246,7 +255,14 @@ export default function App() {
     return dsUnits.units.find((u) => u.id === selectedId) ?? null
   }, [selectedId, mapMode, dsUnits.units])
 
-  const selectedPowerKey = mapMode === 'light' ? parsePowerSelectId(selectedId) : null
+  const selectedPowerTgId = mapMode === 'light' ? parsePowerTgSelectId(selectedId) : null
+  const selectedPowerTg = powerTgById(powerTg.markers, selectedPowerTgId)
+  const selectedMyQueue =
+    mapMode === 'light' && selectedId === POWER_QUEUE_SELECT_ID ? myQueue.resolved : null
+  const selectedPowerKey =
+    mapMode === 'light' && !selectedPowerTgId && !selectedMyQueue
+      ? parsePowerSelectId(selectedId)
+      : null
   const selectedPower = powerOblastByKey(power.payload, selectedPowerKey)
 
   const activeLinkedPool = enrichedThreats.filter((t) => isActiveTrack(t)).length
@@ -343,6 +359,8 @@ export default function App() {
           dsUnits={dsUnits.units}
           groundFilter={groundFilter}
           powerOblasts={power.oblasts}
+          powerTgMarkers={powerTg.markers}
+          powerQueue={myQueue.resolved}
         />
 
         <div className="overlay-stack">
@@ -354,12 +372,32 @@ export default function App() {
               onChange={setGroundFilter}
               counts={groundCounts}
             />
+          ) : mapMode === 'light' && power.oblasts.length > 0 ? (
+            <PowerQueueBar
+              oblasts={power.oblasts}
+              resolved={myQueue.resolved}
+              onSave={myQueue.setQueue}
+              onClear={() => {
+                myQueue.clearQueue()
+                if (selectedId === POWER_QUEUE_SELECT_ID) setSelectedId(null)
+              }}
+              onOpen={() => setSelectedId(POWER_QUEUE_SELECT_ID)}
+            />
           ) : null}
           <Legend mode={mapMode} />
           {mapMode === 'light' && power.status === 'live' ? (
             <p className="track-hint">
               Світло (графіки ОСР / КолиСвітло): {power.oblasts.length} регіонів · зараз без світла
               за графіком — {power.oblasts.filter((o) => o.offNowCount > 0).length}
+              {myQueue.resolved
+                ? ` · моя черга ${myQueue.resolved.group.name || myQueue.resolved.groupId}: ${myQueue.resolved.nowLabel}`
+                : ''}
+            </p>
+          ) : null}
+          {mapMode === 'light' && powerTg.status === 'live' && powerTg.markers.length > 0 ? (
+            <p className="track-hint">
+              TG-сигнали: {powerTg.markers.length} точок → орієнтовні зони (≤
+              {powerTg.payload?.windowHours ?? 36} год), не полігони черг
             </p>
           ) : null}
           {mapMode === 'light' && power.status === 'error' ? (
@@ -458,11 +496,25 @@ export default function App() {
           onClose={() => setSelectedId(null)}
         />
       ) : mapMode === 'light' ? (
-        <PowerOutageSheet
-          oblast={selectedPower}
-          kyivHour={power.payload?.kyivHour ?? 0}
-          onClose={() => setSelectedId(null)}
-        />
+        selectedPowerTg ? (
+          <PowerTgSheet marker={selectedPowerTg} onClose={() => setSelectedId(null)} />
+        ) : selectedMyQueue ? (
+          <PowerQueueSheet
+            queue={selectedMyQueue}
+            kyivHour={power.payload?.kyivHour ?? 0}
+            onClose={() => setSelectedId(null)}
+            onClear={() => {
+              myQueue.clearQueue()
+              setSelectedId(null)
+            }}
+          />
+        ) : (
+          <PowerOutageSheet
+            oblast={selectedPower}
+            kyivHour={power.payload?.kyivHour ?? 0}
+            onClose={() => setSelectedId(null)}
+          />
+        )
       ) : selectedSighting ? (
         <SightingSheet sighting={selectedSighting} onClose={() => setSelectedId(null)} />
       ) : selectedDsUnit ? (

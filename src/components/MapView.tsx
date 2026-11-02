@@ -4,7 +4,7 @@ import maplibregl, {
   type GeoJSONSource,
   type Map as MapLibreMap,
 } from 'maplibre-gl'
-import type { FeatureCollection, LineString, Point } from 'geojson'
+import type { FeatureCollection, LineString, MultiPolygon, Point, Polygon } from 'geojson'
 import {
   DS_ATTACKS_GEOJSON_URL,
   FLY_TO_ZOOM,
@@ -42,6 +42,15 @@ import {
 import type { BurningRefinery, DsmStrike } from '../lib/droneStrikeMap'
 import type { MapMode } from '../lib/mapMode'
 import { powerSelectId, type PowerOblast } from '../lib/powerOutages'
+import {
+  POWER_QUEUE_SELECT_ID,
+  type ResolvedPowerQueue,
+} from '../lib/powerQueue'
+import {
+  buildPowerSignalFeatures,
+  primaryMarkerIdFromSignalProps,
+} from '../lib/powerSignalZones'
+import { powerTgSelectId, type PowerTgMarker } from '../lib/powerTgOutages'
 import {
   ruBplaMarkerId,
   type RuAlertZone,
@@ -84,6 +93,8 @@ type Props = {
   dsUnits: DsUnit[]
   groundFilter: GroundFilterKey
   powerOblasts: PowerOblast[]
+  powerTgMarkers: PowerTgMarker[]
+  powerQueue: ResolvedPowerQueue | null
 }
 
 const THREATS_SOURCE = 'threats'
@@ -103,6 +114,9 @@ const RU_TRAJ_SOURCE = 'ru-traj'
 const RU_TRAJ_ARROW_SOURCE = 'ru-traj-arrows'
 const GROUND_SOURCE = 'ground-losses'
 const SIGHTING_SOURCE = 'rf-sightings'
+const POWER_TG_SOURCE = 'power-tg-points'
+const POWER_SIGNAL_SOURCE = 'power-signal-zones'
+const POWER_QUEUE_SOURCE = 'power-queue-pin'
 const RUSSIA_SOURCE = 'russia-outline'
 const RUSSIA_OBLASTS_SOURCE = 'russia-oblasts'
 
@@ -151,7 +165,16 @@ function preferUkrainianBasemapLabels(map: MapLibreMap) {
   }
 }
 
-const POWER_LAYER_IDS = ['power-oblasts-fill', 'power-oblasts-line'] as const
+const POWER_LAYER_IDS = [
+  'power-oblasts-fill',
+  'power-oblasts-line',
+  'power-signal-fill',
+  'power-signal-line',
+  'power-tg-halo',
+  'power-tg-dot',
+  'power-queue-halo',
+  'power-queue-dot',
+] as const
 
 const GROUND_LAYER_IDS = [
   'ground-halo',
@@ -400,6 +423,53 @@ function buildSightingFeatures(
   }
 }
 
+function buildPowerTgFeatures(
+  markers: PowerTgMarker[],
+  selectedId: string | null,
+): FeatureCollection<Point> {
+  return {
+    type: 'FeatureCollection',
+    features: markers.map((m) => {
+      const sid = powerTgSelectId(m.id)
+      return {
+        type: 'Feature' as const,
+        id: m.id,
+        properties: {
+          id: sid,
+          title: m.summary,
+          place: m.place ?? '',
+          selected: sid === selectedId ? 1 : 0,
+          placeApprox: m.precision === 'coords' ? 0 : 1,
+        },
+        geometry: { type: 'Point' as const, coordinates: [m.lon, m.lat] },
+      }
+    }),
+  }
+}
+
+function buildPowerQueueFeatures(
+  queue: ResolvedPowerQueue | null,
+  selectedId: string | null,
+): FeatureCollection<Point> {
+  if (!queue) return emptyPoints()
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature' as const,
+        id: POWER_QUEUE_SELECT_ID,
+        properties: {
+          id: POWER_QUEUE_SELECT_ID,
+          title: queue.group.name || queue.groupId,
+          off: queue.nowOff ? 1 : 0,
+          selected: selectedId === POWER_QUEUE_SELECT_ID ? 1 : 0,
+        },
+        geometry: { type: 'Point' as const, coordinates: [queue.lon, queue.lat] },
+      },
+    ],
+  }
+}
+
 /**
  * RF BPLA markers: prefer geocoded town fixes from TG corridors, else oblast centroid.
  * No experimental track lines (those were too noisy).
@@ -581,6 +651,8 @@ export function MapView({
   dsUnits,
   groundFilter,
   powerOblasts,
+  powerTgMarkers,
+  powerQueue,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -597,6 +669,10 @@ export function MapView({
   const prevRuAlertKeys = useRef(new Set<string>())
   const prevTotAlertKeys = useRef(new Set<string>())
   const prevPowerKeys = useRef(new Set<string>())
+  const powerOblastsFcRef = useRef<FeatureCollection<
+    Polygon | MultiPolygon,
+    { key?: string }
+  > | null>(null)
 
   useEffect(() => {
     selectedRef.current = selectedId
@@ -715,6 +791,10 @@ export function MapView({
           ...indexCentroidsByKey(russiaOblasts),
           ...indexCentroidsByKey(oblasts),
         ])
+        powerOblastsFcRef.current = oblasts as FeatureCollection<
+          Polygon | MultiPolygon,
+          { key?: string }
+        >
 
         map.addSource(OCCUPIED_SOURCE, { type: 'geojson', data: occupied })
         map.addSource(DS_ATTACKS_SOURCE, { type: 'geojson', data: dsAttacks })
@@ -738,6 +818,9 @@ export function MapView({
         map.addSource(RU_TRAJ_ARROW_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(GROUND_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(SIGHTING_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(POWER_TG_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(POWER_SIGNAL_SOURCE, { type: 'geojson', data: emptyPolygons() })
+        map.addSource(POWER_QUEUE_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(DS_UNITS_SOURCE, { type: 'geojson', data: emptyPoints() })
 
         try {
@@ -1509,6 +1592,141 @@ export function MapView({
         })
 
         addLayerSafe({
+          id: 'power-signal-fill',
+          type: 'fill',
+          source: POWER_SIGNAL_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'fill-color': '#d94cff',
+            'fill-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              0.32,
+              0.2,
+            ],
+          },
+        })
+
+        addLayerSafe({
+          id: 'power-signal-line',
+          type: 'line',
+          source: POWER_SIGNAL_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'line-color': '#f0b0ff',
+            'line-width': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              2.8,
+              2,
+            ],
+            'line-opacity': 0.95,
+            'line-dasharray': [2, 1.2],
+          },
+        })
+
+        addLayerSafe({
+          id: 'power-tg-halo',
+          type: 'circle',
+          source: POWER_TG_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 16, 11],
+              9,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 24, 16],
+            ],
+            'circle-color': '#e85d4c',
+            'circle-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              0.32,
+              0.18,
+            ],
+            'circle-blur': 0.5,
+          },
+        })
+
+        addLayerSafe({
+          id: 'power-tg-dot',
+          type: 'circle',
+          source: POWER_TG_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 7, 5],
+              9,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 10, 7],
+            ],
+            'circle-color': '#e85d4c',
+            'circle-stroke-width': 2,
+            'circle-stroke-color': '#1a0800',
+            'circle-opacity': 0.95,
+          },
+        })
+
+        addLayerSafe({
+          id: 'power-queue-halo',
+          type: 'circle',
+          source: POWER_QUEUE_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 20, 14],
+              9,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 28, 20],
+            ],
+            'circle-color': [
+              'case',
+              ['==', ['to-number', ['get', 'off']], 1],
+              '#e85d4c',
+              '#2f6b4f',
+            ],
+            'circle-opacity': 0.28,
+            'circle-blur': 0.45,
+          },
+        })
+
+        addLayerSafe({
+          id: 'power-queue-dot',
+          type: 'circle',
+          source: POWER_QUEUE_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              4,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 9, 7],
+              9,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 12, 9],
+            ],
+            'circle-color': [
+              'case',
+              ['==', ['to-number', ['get', 'off']], 1],
+              '#e85d4c',
+              '#3d9b6a',
+            ],
+            'circle-stroke-width': 2.5,
+            'circle-stroke-color': '#f5e6c8',
+            'circle-opacity': 1,
+          },
+        })
+
+        addLayerSafe({
           id: 'user-dot',
           type: 'circle',
           source: USER_SOURCE,
@@ -1523,6 +1741,45 @@ export function MapView({
         map.on('click', (e) => {
           const mode = mapModeRef.current
           if (mode === 'light') {
+            const queueLayers = ['power-queue-dot', 'power-queue-halo'].filter((id) =>
+              map.getLayer(id),
+            )
+            const queueHits = queueLayers.length
+              ? map.queryRenderedFeatures(e.point, { layers: queueLayers })
+              : []
+            const queueId = queueHits[0]?.properties?.id
+            if (typeof queueId === 'string' && queueId) {
+              onSelectRef.current(queueId === selectedRef.current ? null : queueId)
+              return
+            }
+            const tgLayers = ['power-tg-dot', 'power-tg-halo'].filter((id) =>
+              map.getLayer(id),
+            )
+            const tgHits = tgLayers.length
+              ? map.queryRenderedFeatures(e.point, { layers: tgLayers })
+              : []
+            const tgId = tgHits[0]?.properties?.id
+            if (typeof tgId === 'string' && tgId) {
+              onSelectRef.current(tgId === selectedRef.current ? null : tgId)
+              return
+            }
+            const signalLayers = ['power-signal-fill', 'power-signal-line'].filter((id) =>
+              map.getLayer(id),
+            )
+            const signalHits = signalLayers.length
+              ? map.queryRenderedFeatures(e.point, { layers: signalLayers })
+              : []
+            const primary = primaryMarkerIdFromSignalProps(
+              signalHits[0]?.properties as {
+                primaryMarkerId?: string
+                markerIds?: string
+              } | null,
+            )
+            if (primary) {
+              const sid = powerTgSelectId(primary)
+              onSelectRef.current(sid === selectedRef.current ? null : sid)
+              return
+            }
             const layers = ['power-oblasts-fill'].filter((id) => map.getLayer(id))
             const hits = layers.length
               ? map.queryRenderedFeatures(e.point, { layers })
@@ -1571,6 +1828,11 @@ export function MapView({
           'sighting-halo',
           'ds-unit-icon',
           'power-oblasts-fill',
+          'power-signal-fill',
+          'power-tg-dot',
+          'power-tg-halo',
+          'power-queue-dot',
+          'power-queue-halo',
         ]) {
           map.on('mouseenter', layerId, () => {
             map.getCanvas().style.cursor = 'pointer'
@@ -1736,6 +1998,35 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    const src = map.getSource(POWER_TG_SOURCE) as GeoJSONSource | undefined
+    src?.setData(
+      mapMode === 'light' ? buildPowerTgFeatures(powerTgMarkers, selectedId) : emptyPoints(),
+    )
+  }, [powerTgMarkers, selectedId, ready, mapMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource(POWER_SIGNAL_SOURCE) as GeoJSONSource | undefined
+    src?.setData(
+      mapMode === 'light'
+        ? buildPowerSignalFeatures(powerTgMarkers, powerOblastsFcRef.current, selectedId)
+        : emptyPolygons(),
+    )
+  }, [powerTgMarkers, selectedId, ready, mapMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource(POWER_QUEUE_SOURCE) as GeoJSONSource | undefined
+    src?.setData(
+      mapMode === 'light' ? buildPowerQueueFeatures(powerQueue, selectedId) : emptyPoints(),
+    )
+  }, [powerQueue, selectedId, ready, mapMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
     const ruOnly = ruAlerts.filter((a) => a.layer !== 'ua-tot')
     const keys = new Set(ruOnly.map((a) => a.key))
     const levels = new Map(ruOnly.map((a) => [a.key, a.level]))
@@ -1832,6 +2123,25 @@ export function MapView({
       }
       return
     }
+    if (mapMode === 'light') {
+      if (selectedId === POWER_QUEUE_SELECT_ID && powerQueue) {
+        map.easeTo({
+          center: [powerQueue.lon, powerQueue.lat],
+          zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
+          duration: 650,
+        })
+        return
+      }
+      const tg = powerTgMarkers.find((m) => powerTgSelectId(m.id) === selectedId)
+      if (tg) {
+        map.easeTo({
+          center: [tg.lon, tg.lat],
+          zoom: Math.max(map.getZoom(), FLY_TO_ZOOM - 0.4),
+          duration: 650,
+        })
+      }
+      return
+    }
     const threat = threats.find((t) => t.id === selectedId)
     if (threat && !threat.areaOnly) {
       const p = predict(threat, Date.now())
@@ -1859,7 +2169,18 @@ export function MapView({
         duration: 650,
       })
     }
-  }, [selectedId, threats, dsmStrikes, burningRefineries, groundLosses, rfSightings, dsUnits, mapMode])
+  }, [
+    selectedId,
+    threats,
+    dsmStrikes,
+    burningRefineries,
+    groundLosses,
+    rfSightings,
+    dsUnits,
+    powerTgMarkers,
+    powerQueue,
+    mapMode,
+  ])
 
   return <div className="map-root" ref={containerRef} role="presentation" />
 }

@@ -41,11 +41,14 @@ jobs:
       - name: Refresh power outage schedules snapshot
         run: node scripts/refresh-power-outages.mjs
         continue-on-error: true
+      - name: Refresh power TG emergency outages snapshot
+        run: node scripts/refresh-power-tg.mjs
+        continue-on-error: true
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/geo/dsm-ru.json public/geo/ru-alerts.json public/geo/warspotting.json public/geo/warspotting-evidence.json public/geo/rf-sightings.json public/geo/geoconfirmed-ground.json public/geo/power-outages.json
+          git add public/geo/dsm-ru.json public/geo/ru-alerts.json public/geo/warspotting.json public/geo/warspotting-evidence.json public/geo/rf-sightings.json public/geo/geoconfirmed-ground.json public/geo/power-outages.json public/geo/power-tg-outages.json
           if git diff --staged --quiet; then
             echo "No snapshot changes"
             exit 0

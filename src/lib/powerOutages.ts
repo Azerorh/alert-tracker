@@ -41,6 +41,11 @@ export type PowerOblast = {
   sourceUrl?: string
 }
 
+/**
+ * Snapshot is oblast-level schedules + per-queue slots.
+ * Do not invent queue polygons: public sources have no queue GeoJSON.
+ * Per-queue UX lives in powerQueue (manual / Yasno address → group).
+ */
 export type PowerOutagesPayload = {
   fetchedAt: string
   source: string
