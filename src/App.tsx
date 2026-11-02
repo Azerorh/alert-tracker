@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FilterBar } from './components/FilterBar'
 import { FooterBar } from './components/FooterBar'
+import { GroundDaysSlider } from './components/GroundDaysSlider'
 import { GroundFilterBar } from './components/GroundFilterBar'
 import { DsUnitSheet } from './components/DsUnitSheet'
 import { GroundSheet } from './components/GroundSheet'
@@ -50,7 +51,11 @@ import {
 } from './lib/neptun'
 import { isActiveTrack, type DisplayThreat } from './lib/threatDisplay'
 import {
+  filterGroundLossesByDays,
+  isWithinLastDays,
   matchesGroundFilter,
+  readStoredGroundDays,
+  writeStoredGroundDays,
   type GroundFilterKey,
 } from './lib/warspotting'
 
@@ -81,7 +86,13 @@ export default function App() {
   const myQueue = usePowerQueue(power.payload, mapMode === 'light')
   const [filter, setFilter] = useState<UiFilterKey>('all')
   const [groundFilter, setGroundFilter] = useState<GroundFilterKey>('all')
+  const [groundDays, setGroundDays] = useState(readStoredGroundDays)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const onGroundDaysChange = (days: number) => {
+    setGroundDays(days)
+    writeStoredGroundDays(days)
+  }
   const [userLocation, setUserLocation] = useState<{ lat: number; lon: number } | null>(null)
   const [locateToken, setLocateToken] = useState(0)
   const [locateBusy, setLocateBusy] = useState(false)
@@ -163,18 +174,33 @@ export default function App() {
 
   const gcSightings = useMemo(
     () =>
-      gcGround.markers.filter((m) => m.kind === 'sighting').map(gcMarkerToSighting),
-    [gcGround.markers],
+      gcGround.markers
+        .filter((m) => m.kind === 'sighting' && isWithinLastDays(m.at, groundDays))
+        .map(gcMarkerToSighting),
+    [gcGround.markers, groundDays],
   )
 
   const gcLosses = useMemo(
-    () => gcGround.markers.filter((m) => m.kind === 'loss').map(gcMarkerToLoss),
-    [gcGround.markers],
+    () =>
+      gcGround.markers
+        .filter((m) => m.kind === 'loss' && isWithinLastDays(m.at, groundDays))
+        .map(gcMarkerToLoss),
+    [gcGround.markers, groundDays],
+  )
+
+  const windowedWsLosses = useMemo(
+    () => filterGroundLossesByDays(ground.losses, groundDays),
+    [ground.losses, groundDays],
+  )
+
+  const windowedRfSightings = useMemo(
+    () => rfSight.sightings.filter((s) => isWithinLastDays(s.at, groundDays)),
+    [rfSight.sightings, groundDays],
   )
 
   const mergedLosses = useMemo(
-    () => [...ground.losses, ...gcLosses],
-    [ground.losses, gcLosses],
+    () => [...windowedWsLosses, ...gcLosses],
+    [windowedWsLosses, gcLosses],
   )
 
   const visibleGround = useMemo(
@@ -184,10 +210,10 @@ export default function App() {
 
   const visibleSightings = useMemo(() => {
     if (groundFilter === 'all' || groundFilter === 'sightings') {
-      return [...rfSight.sightings, ...gcSightings]
+      return [...windowedRfSightings, ...gcSightings]
     }
     return gcSightings.filter((s) => s.category === groundFilter)
-  }, [rfSight.sightings, gcSightings, groundFilter])
+  }, [windowedRfSightings, gcSightings, groundFilter])
 
   const counts = useMemo(() => {
     const base: Record<string, number> = { all: 0 }
@@ -203,7 +229,7 @@ export default function App() {
   }, [enrichedThreats, nearbyIds])
 
   const groundCounts = useMemo(() => {
-    const sightingTotal = rfSight.sightings.length + gcSightings.length
+    const sightingTotal = windowedRfSightings.length + gcSightings.length
     const base: Record<string, number> = {
       all: mergedLosses.length + sightingTotal + dsUnits.units.length,
       sightings: sightingTotal,
@@ -218,7 +244,7 @@ export default function App() {
       base[u.category] = (base[u.category] ?? 0) + 1
     }
     return base
-  }, [mergedLosses, rfSight.sightings, gcSightings, dsUnits.units])
+  }, [mergedLosses, windowedRfSightings, gcSightings, dsUnits.units])
 
   const selected: DisplayThreat | null = useMemo(() => {
     if (!selectedId || mapMode !== 'air') return null
@@ -375,11 +401,14 @@ export default function App() {
           {mapMode === 'air' ? (
             <FilterBar value={filter} onChange={setFilter} counts={counts} />
           ) : mapMode === 'ground' ? (
-            <GroundFilterBar
-              value={groundFilter}
-              onChange={setGroundFilter}
-              counts={groundCounts}
-            />
+            <>
+              <GroundFilterBar
+                value={groundFilter}
+                onChange={setGroundFilter}
+                counts={groundCounts}
+              />
+              <GroundDaysSlider value={groundDays} onChange={onGroundDaysChange} />
+            </>
           ) : mapMode === 'light' && power.oblasts.length > 0 ? (
             <PowerQueueBar
               oblasts={power.oblasts}
@@ -449,38 +478,31 @@ export default function App() {
               {nearbyIds?.size ?? 0} загроз у радіусі
             </p>
           ) : null}
-          {mapMode === 'ground' && ground.status === 'live' && groundFilter !== 'sightings' ? (
+          {mapMode === 'ground' &&
+          (ground.status === 'live' ||
+            rfSight.status === 'live' ||
+            gcGround.status === 'live' ||
+            dsUnits.status === 'live') ? (
             <p className="track-hint">
-              WarSpotting · 21 діб: {visibleGround.length}
-              {groundFilter !== 'all' ? ` / ${ground.losses.length}` : ''} втрат РФ
-            </p>
-          ) : null}
-          {mapMode === 'ground' && rfSight.status === 'live' ? (
-            <p className="track-hint">
-              Активні сайтінги РФ (≤7 діб):{' '}
-              {groundFilter === 'all' || groundFilter === 'sightings'
-                ? rfSight.sightings.length
-                : 0}{' '}
-              TG · не втрати · не ЗСУ
-            </p>
-          ) : null}
-          {mapMode === 'ground' && gcGround.status === 'live' ? (
-            <p className="track-hint">
-              GeoConfirmed (РФ kit ≤21 діб):{' '}
-              {gcGround.markers.filter((m) =>
-                groundFilter === 'all' || groundFilter === 'sightings'
-                  ? true
-                  : m.category === groundFilter,
-              ).length}{' '}
-              · verified, без ударів по Україні
-            </p>
-          ) : null}
-          {mapMode === 'ground' && dsUnits.status === 'live' ? (
-            <p className="track-hint">
-              Підрозділи РФ (DeepState, зріз):{' '}
-              {groundFilter === 'all' || groundFilter === 'sightings'
-                ? dsUnits.units.length
-                : dsUnits.units.filter((u) => u.category === groundFilter).length}
+              {[
+                `≤${groundDays} діб`,
+                groundFilter !== 'sightings' && ground.status === 'live'
+                  ? `втрати ${visibleGround.length}`
+                  : null,
+                (groundFilter === 'all' || groundFilter === 'sightings') &&
+                (rfSight.status === 'live' || gcGround.status === 'live')
+                  ? `сайтінги ${visibleSightings.length}`
+                  : null,
+                dsUnits.status === 'live'
+                  ? `підрозділи ${
+                      groundFilter === 'all' || groundFilter === 'sightings'
+                        ? dsUnits.units.length
+                        : dsUnits.units.filter((u) => u.category === groundFilter).length
+                    }`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
           ) : null}
           {mapMode === 'ground' && ground.status === 'error' ? (

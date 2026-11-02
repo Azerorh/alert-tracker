@@ -625,8 +625,56 @@ a {
 
 .filter-bar,
 .legend,
-.power-queue-bar {
+.power-queue-bar,
+.ground-days {
   pointer-events: auto;
+}
+
+.ground-days {
+  max-width: min(320px, 100%);
+  padding: 10px 12px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: rgba(12, 18, 32, 0.88);
+  box-shadow: var(--shadow);
+}
+
+.ground-days-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.ground-days-label {
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ground-days-value {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ground-days-range {
+  width: 100%;
+  margin: 0;
+  accent-color: #7dd3c0;
+  cursor: pointer;
+}
+
+.ground-days-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-size: 0.68rem;
+  color: var(--muted);
+  font-family: var(--mono);
 }
 
 .power-queue-bar {

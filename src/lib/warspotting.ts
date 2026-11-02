@@ -5,9 +5,13 @@ import { ensurePlaceIndex, geocodeWarspottingPlace } from './placeGazetteer'
 export const WARSPOTTING_URL = 'https://ukr.warspotting.net/'
 export const WARSPOTTING_RECENT_URL = 'https://ukr.warspotting.net/api/losses/russia/recent/'
 
-/** API gives day-only dates; keep losses from the last ~21 days. */
+/** API / snapshots keep losses from the last ~21 days (slider max). */
 export const GROUND_WINDOW_HOURS = 24 * 21
 export const GROUND_WINDOW_MS = GROUND_WINDOW_HOURS * 60 * 60_000
+export const GROUND_DAYS_MIN = 1
+export const GROUND_DAYS_MAX = 21
+export const GROUND_DAYS_DEFAULT = 7
+export const GROUND_DAYS_STORAGE_KEY = 'alert-tracker:ground-days'
 
 export type GroundCategory =
   | 'tanks'
@@ -120,14 +124,29 @@ function parseGeo(raw: unknown): { lat: number; lon: number } | null {
   return { lat: parts[0], lon: parts[1] }
 }
 
-/** WarSpotting `date` is YYYY-MM-DD only — keep if that day intersects the last 7 days. */
+/** WarSpotting `date` is YYYY-MM-DD only — keep if that day intersects the snapshot max window. */
 export function isWithinGroundWindow(dateStr: string, now = Date.now()): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false
-  const dayStart = Date.parse(`${dateStr}T00:00:00.000Z`)
-  const dayEnd = Date.parse(`${dateStr}T23:59:59.999Z`)
-  if (!Number.isFinite(dayStart) || !Number.isFinite(dayEnd)) return false
-  const windowStart = now - GROUND_WINDOW_MS
-  return dayEnd >= windowStart && dayStart <= now
+  return isWithinLastDays(dateStr, GROUND_DAYS_MAX, now)
+}
+
+/** YYYY-MM-DD or ISO timestamp — true if event falls within the last `days` days. */
+export function isWithinLastDays(
+  isoOrDay: string,
+  days: number,
+  now = Date.now(),
+): boolean {
+  const d = Math.max(GROUND_DAYS_MIN, Math.min(GROUND_DAYS_MAX, Math.round(days)))
+  const windowMs = d * 24 * 60 * 60_000
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoOrDay)) {
+    const dayStart = Date.parse(`${isoOrDay}T00:00:00.000Z`)
+    const dayEnd = Date.parse(`${isoOrDay}T23:59:59.999Z`)
+    if (!Number.isFinite(dayStart) || !Number.isFinite(dayEnd)) return false
+    const windowStart = now - windowMs
+    return dayEnd >= windowStart && dayStart <= now
+  }
+  const ts = Date.parse(isoOrDay)
+  if (!Number.isFinite(ts)) return false
+  return ts >= now - windowMs && ts <= now + 60_000
 }
 
 export function filterGroundLossesByWindow(
@@ -135,6 +154,35 @@ export function filterGroundLossesByWindow(
   now = Date.now(),
 ): GroundLoss[] {
   return losses.filter((l) => isWithinGroundWindow(l.date, now))
+}
+
+export function filterGroundLossesByDays(
+  losses: GroundLoss[],
+  days: number,
+  now = Date.now(),
+): GroundLoss[] {
+  return losses.filter((l) => isWithinLastDays(l.date, days, now))
+}
+
+export function readStoredGroundDays(): number {
+  try {
+    const raw = localStorage.getItem(GROUND_DAYS_STORAGE_KEY)
+    const n = Number(raw)
+    if (Number.isFinite(n)) {
+      return Math.max(GROUND_DAYS_MIN, Math.min(GROUND_DAYS_MAX, Math.round(n)))
+    }
+  } catch {
+    /* private mode */
+  }
+  return GROUND_DAYS_DEFAULT
+}
+
+export function writeStoredGroundDays(days: number): void {
+  try {
+    localStorage.setItem(GROUND_DAYS_STORAGE_KEY, String(days))
+  } catch {
+    /* ignore */
+  }
 }
 
 export async function parseWarspottingLosses(
