@@ -1,45 +1,70 @@
 import type { EradarZone } from '../lib/eradar'
 import { ERADAR_ATTRIBUTION_URL } from '../lib/eradar'
+import { SheetChrome } from './SheetChrome'
 
 type Props = {
   zone: EradarZone | null
   onClose: () => void
 }
 
+function formatSeen(iso: string | null): string {
+  if (!iso) return '—'
+  try {
+    return new Date(iso).toLocaleString('uk-UA', {
+      timeZone: 'Europe/Kyiv',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    })
+  } catch {
+    return iso
+  }
+}
+
 export function EradarSheet({ zone, onClose }: Props) {
   if (!zone) return null
 
+  const title = zone.name
+    ? zone.name.charAt(0).toUpperCase() + zone.name.slice(1)
+    : 'Згадка TG'
+
   return (
-    <aside className="sheet" aria-label="Зона eRadar">
-      <header className="sheet-head">
-        <div>
-          <p className="sheet-kicker">TG-зона · eRadar</p>
-          <h2 className="sheet-title">{zone.name || 'Згадка'}</h2>
-        </div>
-        <button type="button" className="sheet-close" onClick={onClose} aria-label="Закрити">
-          ×
-        </button>
-      </header>
-      <div className="sheet-body">
-        <p className="sheet-meta">
-          {zone.threatType}
-          {zone.kind ? ` · ${zone.kind}` : ''}
-          {zone.channel ? ` · ${zone.channel}` : ''}
-        </p>
+    <aside className="threat-sheet" aria-live="polite">
+      <SheetChrome
+        accent="#f0a020"
+        kicker="TG-зона · eRadar"
+        title={title}
+        onClose={onClose}
+      >
         {zone.excerpt ? <p className="sheet-explain">{zone.excerpt}</p> : null}
         <p className="sheet-explain">
-          Орієнтовна зона згадки (не офіційна тривога, не трек NEPTUN/MAPA). Радіус ~
+          Орієнтовна зона згадки (не офіційна тривога і не трек NEPTUN/MAPA). Радіус ~
           {Math.round(zone.radiusKm)} км.
         </p>
-        {zone.lastSeen ? (
-          <p className="sheet-meta">Останнє: {new Date(zone.lastSeen).toLocaleString('uk-UA')}</p>
-        ) : null}
-        <p className="sheet-meta">
-          <a href={ERADAR_ATTRIBUTION_URL} target="_blank" rel="noreferrer">
+        <dl className="sheet-grid">
+          <div>
+            <dt>Тип</dt>
+            <dd>
+              {zone.threatType || '—'}
+              {zone.kind ? ` · ${zone.kind}` : ''}
+            </dd>
+          </div>
+          <div>
+            <dt>Канал</dt>
+            <dd>{zone.channel || '—'}</dd>
+          </div>
+          <div>
+            <dt>Останнє</dt>
+            <dd>{formatSeen(zone.lastSeen)}</dd>
+          </div>
+        </dl>
+        <div className="sheet-links">
+          <a className="sheet-link" href={ERADAR_ATTRIBUTION_URL} target="_blank" rel="noreferrer">
             eradar.app
           </a>
-        </p>
-      </div>
+        </div>
+      </SheetChrome>
     </aside>
   )
 }

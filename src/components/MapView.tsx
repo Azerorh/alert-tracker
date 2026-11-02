@@ -827,7 +827,11 @@ export function MapView({
         map.addSource(POWER_TG_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(POWER_SIGNAL_SOURCE, { type: 'geojson', data: emptyPolygons() })
         map.addSource(POWER_QUEUE_SOURCE, { type: 'geojson', data: emptyPoints() })
-        map.addSource(ERADAR_SOURCE, { type: 'geojson', data: emptyPolygons() })
+        map.addSource(ERADAR_SOURCE, {
+          type: 'geojson',
+          data: emptyPolygons(),
+          promoteId: 'id',
+        })
         map.addSource(DS_UNITS_SOURCE, { type: 'geojson', data: emptyPoints() })
 
         try {
@@ -1856,8 +1860,9 @@ export function MapView({
           const hits = hitLayers.length
             ? map.queryRenderedFeatures(e.point, { layers: hitLayers })
             : []
-          const id = hits[0]?.properties?.id
-          if (typeof id === 'string') {
+          const rawId = hits[0]?.properties?.id ?? hits[0]?.id
+          const id = rawId != null ? String(rawId) : ''
+          if (id) {
             onSelectRef.current(id === selectedRef.current ? null : id)
             return
           }

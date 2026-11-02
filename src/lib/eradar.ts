@@ -127,7 +127,7 @@ export function buildEradarFeatures(
     const sid = eradarSelectId(z.id)
     features.push({
       type: 'Feature',
-      id: sid,
+      // id only via properties + promoteId (avoid clashing string Feature.id)
       properties: {
         id: sid,
         name: z.name,
