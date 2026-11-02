@@ -1274,6 +1274,39 @@ export function MapView({
           },
         })
 
+        // TG zones under live tracks so yellow fills never steal clicks from БпЛА/КАБ.
+        addLayerSafe({
+          id: 'eradar-fill',
+          type: 'fill',
+          source: ERADAR_SOURCE,
+          paint: {
+            'fill-color': '#f0a020',
+            'fill-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              0.2,
+              0.1,
+            ],
+          },
+        })
+
+        addLayerSafe({
+          id: 'eradar-line',
+          type: 'line',
+          source: ERADAR_SOURCE,
+          paint: {
+            'line-color': '#ffc866',
+            'line-width': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              2.2,
+              1.4,
+            ],
+            'line-opacity': 0.85,
+            'line-dasharray': [1.6, 1.4],
+          },
+        })
+
         // Uncertainty halo ≈ report precision (city/corridor), not radar CEP
         addLayerSafe({
           id: 'threat-uncertainty',
@@ -1628,39 +1661,6 @@ export function MapView({
           },
         })
 
-        // eRadar TG zones — soft amber rings; official alert mirrors filtered upstream.
-        addLayerSafe({
-          id: 'eradar-fill',
-          type: 'fill',
-          source: ERADAR_SOURCE,
-          paint: {
-            'fill-color': '#f0a020',
-            'fill-opacity': [
-              'case',
-              ['==', ['to-number', ['get', 'selected']], 1],
-              0.2,
-              0.1,
-            ],
-          },
-        })
-
-        addLayerSafe({
-          id: 'eradar-line',
-          type: 'line',
-          source: ERADAR_SOURCE,
-          paint: {
-            'line-color': '#ffc866',
-            'line-width': [
-              'case',
-              ['==', ['to-number', ['get', 'selected']], 1],
-              2.2,
-              1.4,
-            ],
-            'line-opacity': 0.85,
-            'line-dasharray': [1.6, 1.4],
-          },
-        })
-
         addLayerSafe({
           id: 'power-signal-fill',
           type: 'fill',
@@ -1886,7 +1886,13 @@ export function MapView({
           const hits = hitLayers.length
             ? map.queryRenderedFeatures(e.point, { layers: hitLayers })
             : []
-          const rawId = hits[0]?.properties?.id ?? hits[0]?.id
+          // Prefer live tracks over TG zone fills when stacks overlap.
+          const hit =
+            hits.find((f) => {
+              const lid = f.layer?.id
+              return lid !== 'eradar-fill' && lid !== 'eradar-line'
+            }) ?? hits[0]
+          const rawId = hit?.properties?.id ?? hit?.id
           const id = rawId != null ? String(rawId) : ''
           if (id) {
             onSelectRef.current(id === selectedRef.current ? null : id)
