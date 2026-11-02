@@ -12,6 +12,13 @@ export const NAHR_TG_CHANNELS = [
     label: 'LPR 1 / Треугольник',
     url: 'https://t.me/lpr1_treugolnik',
   },
+  { id: 'radarrussiia', label: 'Радар по РФ', url: 'https://t.me/radarrussiia' },
+  {
+    id: 'Radarrussia_bpla',
+    label: 'Радар БПЛА РФ',
+    url: 'https://t.me/Radarrussia_bpla',
+  },
+  { id: 'radarru2', label: 'Локатор RU', url: 'https://t.me/radarru2' },
 ] as const
 
 /** @deprecated alias — footer previously linked RadarMap */

@@ -13,6 +13,10 @@ export const NAHR_TG_CHANNELS = [
   { id: 'locatorru', label: 'ЛОКАТОР РОСІЇ' },
   { id: 'vrv_radar', label: 'ВРВ РАДАР' },
   { id: 'lpr1_treugolnik', label: 'LPR 1 / Треугольник' },
+  /** Extra RU radar-style channels — still collapsed to oblast keys (no map flood). */
+  { id: 'radarrussiia', label: 'Радар по РФ' },
+  { id: 'Radarrussia_bpla', label: 'Радар БПЛА РФ' },
+  { id: 'radarru2', label: 'Локатор RU' },
 ]
 
 export const NAHR_MAP_URL = 'https://map.nahr.uk/'

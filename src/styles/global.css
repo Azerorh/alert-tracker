@@ -895,6 +895,12 @@ a {
   box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.45);
 }
 
+.legend-swatch.eradar {
+  border-radius: 3px;
+  background: rgba(240, 160, 32, 0.4);
+  box-shadow: 0 0 0 1px rgba(255, 200, 102, 0.85);
+}
+
 .legend-swatch.power-ok {
   background: #2f6b4f;
 }

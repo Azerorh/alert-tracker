@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { DSM_ATTRIBUTION_URL } from '../lib/droneStrikeMap'
+import { ERADAR_ATTRIBUTION_URL } from '../lib/eradar'
 import { MAPA_ATTRIBUTION_URL } from '../lib/mapa'
 import { DEEPSTATE_ATTRIBUTION_URL, NEPTUN_ATTRIBUTION_URL } from '../lib/neptun'
 import { GEOCONFIRMED_URL } from '../lib/geoConfirmedGround'
@@ -42,6 +43,12 @@ export function FooterBar() {
           <a href={MAPA_ATTRIBUTION_URL} target="_blank" rel="noreferrer">
             MAPA.UA
           </a>
+          {' · '}
+          TG-зони:{' '}
+          <a href={ERADAR_ATTRIBUTION_URL} target="_blank" rel="noreferrer">
+            eRadar
+          </a>{' '}
+          (снапшот, без дубля офіційних тривог)
           {' · '}
           удари РФ / НПЗ:{' '}
           <a href={DSM_ATTRIBUTION_URL} target="_blank" rel="noreferrer">

@@ -4,6 +4,7 @@ import { FooterBar } from './components/FooterBar'
 import { GroundFilterBar } from './components/GroundFilterBar'
 import { DsUnitSheet } from './components/DsUnitSheet'
 import { GroundSheet } from './components/GroundSheet'
+import { EradarSheet } from './components/EradarSheet'
 import { Legend } from './components/Legend'
 import { MapView } from './components/MapView'
 import { PowerOutageSheet } from './components/PowerOutageSheet'
@@ -15,6 +16,7 @@ import { ThreatSheet } from './components/ThreatSheet'
 import { TopBar } from './components/TopBar'
 import { WatchToasts } from './components/WatchToasts'
 import { useEnrichedThreats } from './hooks/useEnrichedThreats'
+import { useEradar } from './hooks/useEradar'
 import { useGroundLosses } from './hooks/useGroundLosses'
 import { useNeptun } from './hooks/useNeptun'
 import { useNow } from './hooks/useNow'
@@ -26,6 +28,7 @@ import { usePowerQueue } from './hooks/usePowerQueue'
 import { usePowerTgOutages } from './hooks/usePowerTgOutages'
 import { useRfSightings } from './hooks/useRfSightings'
 import { useRuAlerts } from './hooks/useRuAlerts'
+import { eradarZoneById } from './lib/eradar'
 import { parsePowerSelectId, powerOblastByKey } from './lib/powerOutages'
 import { POWER_QUEUE_SELECT_ID } from './lib/powerQueue'
 import { parsePowerTgSelectId, powerTgById } from './lib/powerTgOutages'
@@ -59,6 +62,7 @@ export default function App() {
     threats: enrichedThreats,
     mapaLinked,
     mapaStatus,
+    mapaAttack,
     endedCount,
   } = useEnrichedThreats(snap.threats)
   const { status: sourceStatus, available: bffUp } = useSourceStatus()
@@ -67,6 +71,7 @@ export default function App() {
   const dsm = useDroneStrikeLayer()
   const ruAlerts = useRuAlerts()
   const [mapMode, setMapMode] = useState<MapMode>('air')
+  const eradar = useEradar(mapMode === 'air')
   const ground = useGroundLosses(mapMode === 'ground')
   const rfSight = useRfSightings(mapMode === 'ground')
   const gcGround = useGeoConfirmedGround(mapMode === 'ground')
@@ -264,6 +269,8 @@ export default function App() {
       ? parsePowerSelectId(selectedId)
       : null
   const selectedPower = powerOblastByKey(power.payload, selectedPowerKey)
+  const selectedEradar =
+    mapMode === 'air' ? eradarZoneById(eradar.zones, selectedId) : null
 
   const activeLinkedPool = enrichedThreats.filter((t) => isActiveTrack(t)).length
 
@@ -361,6 +368,7 @@ export default function App() {
           powerOblasts={power.oblasts}
           powerTgMarkers={powerTg.markers}
           powerQueue={myQueue.resolved}
+          eradarZones={eradar.zones}
         />
 
         <div className="overlay-stack">
@@ -403,9 +411,15 @@ export default function App() {
           {mapMode === 'light' && power.status === 'error' ? (
             <p className="track-hint">Не вдалося завантажити графіки відключень</p>
           ) : null}
-          {mapMode === 'air' && mapaStatus === 'live' && mapaLinked > 0 ? (
+          {mapMode === 'air' && mapaStatus === 'live' ? (
             <p className="track-hint">
-              Уточнення треків: MAPA 1↔1 · зв’язано {mapaLinked} з {activeLinkedPool}
+              MAPA
+              {mapaAttack
+                ? ` · атака #${mapaAttack.id}${mapaAttack.status === 'active' ? ' (жива)' : ''}: БпЛА ${mapaAttack.totalDrones} · ракети ${mapaAttack.totalMissiles} · КАБ ${mapaAttack.totalBombs}`
+                : ''}
+              {mapaLinked > 0
+                ? ` · треки 1↔1 ${mapaLinked}/${activeLinkedPool}`
+                : ''}
             </p>
           ) : null}
           {mapMode === 'air' &&
@@ -418,7 +432,12 @@ export default function App() {
           ) : null}
           {mapMode === 'air' && ruAlerts.status === 'live' && ruAlerts.alerts.length > 0 ? (
             <p className="track-hint">
-              Тривоги РФ (TG / NAHR-джерела): {ruAlerts.alerts.length} регіонів
+              Тривоги РФ (TG): {ruAlerts.alerts.length} регіонів
+            </p>
+          ) : null}
+          {mapMode === 'air' && eradar.status === 'live' && eradar.zones.length > 0 ? (
+            <p className="track-hint">
+              eRadar TG-зони: {eradar.zones.length} (без дубля офіційних тривог)
             </p>
           ) : null}
           {mapMode === 'air' && endedCount.shot_down + endedCount.vanished > 0 ? (
@@ -489,12 +508,16 @@ export default function App() {
 
       {/* Outside map-stage so width tracks .app-shell (not the inflated layout viewport). */}
       {mapMode === 'air' ? (
-        <ThreatSheet
-          threat={selected}
-          now={now}
-          userLocation={userLocation}
-          onClose={() => setSelectedId(null)}
-        />
+        selectedEradar ? (
+          <EradarSheet zone={selectedEradar} onClose={() => setSelectedId(null)} />
+        ) : (
+          <ThreatSheet
+            threat={selected}
+            now={now}
+            userLocation={userLocation}
+            onClose={() => setSelectedId(null)}
+          />
+        )
       ) : mapMode === 'light' ? (
         selectedPowerTg ? (
           <PowerTgSheet marker={selectedPowerTg} onClose={() => setSelectedId(null)} />

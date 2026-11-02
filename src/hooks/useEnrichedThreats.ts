@@ -4,6 +4,7 @@ import {
   enrichThreatWithMapa,
   fetchMapaSnapshot,
   MAPA_SHOT_DOWN,
+  type MapaAttackSummary,
   type MapaObject,
 } from '../lib/mapa'
 import type { Threat } from '../lib/neptun'
@@ -70,10 +71,14 @@ export function useEnrichedThreats(threats: Threat[]): {
   threats: DisplayThreat[]
   mapaLinked: number
   mapaStatus: 'idle' | 'live' | 'error'
+  mapaAttack: MapaAttackSummary | null
+  mapaRecentAttacks: MapaAttackSummary[]
   endedCount: { shot_down: number; vanished: number }
 } {
   const [mapaActive, setMapaActive] = useState<MapaObject[]>([])
   const [mapaTerminal, setMapaTerminal] = useState<MapaObject[]>([])
+  const [mapaAttack, setMapaAttack] = useState<MapaAttackSummary | null>(null)
+  const [mapaRecentAttacks, setMapaRecentAttacks] = useState<MapaAttackSummary[]>([])
   const [mapaStatus, setMapaStatus] = useState<'idle' | 'live' | 'error'>('idle')
   const [tick, setTick] = useState(0)
 
@@ -93,6 +98,8 @@ export function useEnrichedThreats(threats: Threat[]): {
         if (cancelled) return
         setMapaActive(snap.active)
         setMapaTerminal(snap.terminal)
+        setMapaAttack(snap.attack)
+        setMapaRecentAttacks(snap.recentAttacks)
         setMapaStatus('live')
       } catch {
         if (!cancelled) setMapaStatus('error')
@@ -293,7 +300,7 @@ export function useEnrichedThreats(threats: Threat[]): {
     }
   }, [threats, mapaActive, mapaTerminal, tick])
 
-  return { ...enriched, mapaStatus }
+  return { ...enriched, mapaStatus, mapaAttack, mapaRecentAttacks }
 }
 
 export type { DisplayThreat }

@@ -51,6 +51,7 @@ import {
   primaryMarkerIdFromSignalProps,
 } from '../lib/powerSignalZones'
 import { powerTgSelectId, type PowerTgMarker } from '../lib/powerTgOutages'
+import { buildEradarFeatures, type EradarZone } from '../lib/eradar'
 import {
   ruBplaMarkerId,
   type RuAlertZone,
@@ -95,6 +96,7 @@ type Props = {
   powerOblasts: PowerOblast[]
   powerTgMarkers: PowerTgMarker[]
   powerQueue: ResolvedPowerQueue | null
+  eradarZones: EradarZone[]
 }
 
 const THREATS_SOURCE = 'threats'
@@ -117,6 +119,7 @@ const SIGHTING_SOURCE = 'rf-sightings'
 const POWER_TG_SOURCE = 'power-tg-points'
 const POWER_SIGNAL_SOURCE = 'power-signal-zones'
 const POWER_QUEUE_SOURCE = 'power-queue-pin'
+const ERADAR_SOURCE = 'eradar-zones'
 const RUSSIA_SOURCE = 'russia-outline'
 const RUSSIA_OBLASTS_SOURCE = 'russia-oblasts'
 
@@ -125,6 +128,8 @@ const AIR_LAYER_IDS = [
   'raions-fill',
   'russia-oblasts-fill',
   'russia-oblasts-line',
+  'eradar-fill',
+  'eradar-line',
   'near-me-fill',
   'near-me-line',
   'trails-line',
@@ -653,6 +658,7 @@ export function MapView({
   powerOblasts,
   powerTgMarkers,
   powerQueue,
+  eradarZones,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -821,6 +827,7 @@ export function MapView({
         map.addSource(POWER_TG_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(POWER_SIGNAL_SOURCE, { type: 'geojson', data: emptyPolygons() })
         map.addSource(POWER_QUEUE_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(ERADAR_SOURCE, { type: 'geojson', data: emptyPolygons() })
         map.addSource(DS_UNITS_SOURCE, { type: 'geojson', data: emptyPoints() })
 
         try {
@@ -1591,6 +1598,39 @@ export function MapView({
           },
         })
 
+        // eRadar TG zones — soft amber rings; official alert mirrors filtered upstream.
+        addLayerSafe({
+          id: 'eradar-fill',
+          type: 'fill',
+          source: ERADAR_SOURCE,
+          paint: {
+            'fill-color': '#f0a020',
+            'fill-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              0.2,
+              0.1,
+            ],
+          },
+        })
+
+        addLayerSafe({
+          id: 'eradar-line',
+          type: 'line',
+          source: ERADAR_SOURCE,
+          paint: {
+            'line-color': '#ffc866',
+            'line-width': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              2.2,
+              1.4,
+            ],
+            'line-opacity': 0.85,
+            'line-dasharray': [1.6, 1.4],
+          },
+        })
+
         addLayerSafe({
           id: 'power-signal-fill',
           type: 'fill',
@@ -1803,7 +1843,15 @@ export function MapView({
                   'ground-halo',
                   'ds-unit-icon',
                 ]
-              : ['npz-icon', 'dsm-icon', 'ru-bpla-icon', 'threat-icon', 'threat-halo']
+              : [
+                  'npz-icon',
+                  'dsm-icon',
+                  'ru-bpla-icon',
+                  'threat-icon',
+                  'threat-halo',
+                  'eradar-fill',
+                  'eradar-line',
+                ]
           ).filter((id) => map.getLayer(id))
           const hits = hitLayers.length
             ? map.queryRenderedFeatures(e.point, { layers: hitLayers })
@@ -1822,6 +1870,8 @@ export function MapView({
           'dsm-icon',
           'npz-icon',
           'ru-bpla-icon',
+          'eradar-fill',
+          'eradar-line',
           'ground-icon',
           'ground-halo',
           'sighting-icon',
@@ -1931,6 +1981,15 @@ export function MapView({
     const src = map.getSource(DSM_SOURCE) as GeoJSONSource | undefined
     src?.setData(mapMode === 'air' ? buildDsmFeatures(dsmStrikes) : emptyPoints())
   }, [dsmStrikes, ready, mapMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource(ERADAR_SOURCE) as GeoJSONSource | undefined
+    src?.setData(
+      mapMode === 'air' ? buildEradarFeatures(eradarZones, selectedId) : emptyPolygons(),
+    )
+  }, [eradarZones, selectedId, ready, mapMode])
 
   useEffect(() => {
     const map = mapRef.current

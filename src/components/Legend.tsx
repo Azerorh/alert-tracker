@@ -122,6 +122,10 @@ export function Legend({ mode = 'air' }: Props) {
           Тривога UA / РФ
         </li>
         <li>
+          <span className="legend-swatch eradar" />
+          TG-зона eRadar
+        </li>
+        <li>
           <span className="legend-swatch occupied" />
           Окупація
         </li>

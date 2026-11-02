@@ -2,6 +2,7 @@ import { distanceKm, type Threat, type ThreatType } from './neptun'
 import { apiUrl } from './api'
 
 const MAPA_DIRECT_URL = 'https://mapa.ua/api/v1/current'
+const MAPA_ATTACKS_URL = 'https://mapa.ua/api/v1/attacks?limit=4'
 export const MAPA_ATTRIBUTION_URL = 'https://mapa.ua/'
 
 export type MapaObject = {
@@ -22,6 +23,18 @@ export type MapaObject = {
   group_id?: string | number
 }
 
+/** Compact attack rollup from /current or /attacks — HUD only, not map markers. */
+export type MapaAttackSummary = {
+  id: number
+  status: string
+  totalObjects: number
+  totalDrones: number
+  totalMissiles: number
+  totalBombs: number
+  startedAt: number | null
+  endedAt: number | null
+}
+
 export type MapaMatch = {
   object: MapaObject
   distKm: number
@@ -31,7 +44,30 @@ export type MapaMatch = {
 
 type MapaCurrentResponse = {
   objects?: MapaObject[]
+  attack?: {
+    id?: number
+    status?: string
+    total_objects?: number
+    total_drones?: number
+    total_missiles?: number
+    total_bombs?: number
+    started_at?: number | null
+    ended_at?: number | null
+  } | null
   ts?: number
+}
+
+type MapaAttacksResponse = {
+  attacks?: Array<{
+    id?: number
+    status?: string
+    total_objects?: number
+    total_drones?: number
+    total_missiles?: number
+    total_bombs?: number
+    started_at?: number | null
+    ended_at?: number | null
+  }>
 }
 
 const KIND_BY_THREAT: Record<ThreatType, string[]> = {
@@ -73,15 +109,54 @@ const DISAGREE_FRAC = 0.55
 
 /** MAPA statuses that mean the object is no longer flying as an active track. */
 export const MAPA_SHOT_DOWN = new Set(['eliminated'])
-export const MAPA_TERMINAL = new Set(['eliminated', 'hit_target'])
+export const MAPA_TERMINAL = new Set(['eliminated', 'hit_target', 'lost'])
 
 export type MapaSnapshot = {
   active: MapaObject[]
   terminal: MapaObject[]
+  attack: MapaAttackSummary | null
+  recentAttacks: MapaAttackSummary[]
 }
 
 function finiteCoords(o: MapaObject): boolean {
   return Number.isFinite(o.lat) && Number.isFinite(o.lon)
+}
+
+function parseAttackSummary(raw: {
+  id?: number
+  status?: string
+  total_objects?: number
+  total_drones?: number
+  total_missiles?: number
+  total_bombs?: number
+  started_at?: number | null
+  ended_at?: number | null
+} | null | undefined): MapaAttackSummary | null {
+  if (!raw || raw.id == null) return null
+  return {
+    id: Number(raw.id),
+    status: String(raw.status ?? ''),
+    totalObjects: Number(raw.total_objects ?? 0),
+    totalDrones: Number(raw.total_drones ?? 0),
+    totalMissiles: Number(raw.total_missiles ?? 0),
+    totalBombs: Number(raw.total_bombs ?? 0),
+    startedAt: raw.started_at != null ? Number(raw.started_at) : null,
+    endedAt: raw.ended_at != null ? Number(raw.ended_at) : null,
+  }
+}
+
+async function fetchMapaRecentAttacks(): Promise<MapaAttackSummary[]> {
+  try {
+    const res = await fetch(MAPA_ATTACKS_URL)
+    if (!res.ok) return []
+    const data = (await res.json()) as MapaAttacksResponse
+    return (data.attacks ?? [])
+      .map((a) => parseAttackSummary(a))
+      .filter((a): a is MapaAttackSummary => !!a)
+      .slice(0, 4)
+  } catch {
+    return []
+  }
 }
 
 export async function fetchMapaSnapshot(): Promise<MapaSnapshot> {
@@ -93,9 +168,17 @@ export async function fetchMapaSnapshot(): Promise<MapaSnapshot> {
       if (!res.ok) throw new Error(`MAPA HTTP ${res.status}`)
       const data = (await res.json()) as MapaCurrentResponse
       const objects = (data.objects ?? []).filter(finiteCoords)
+      const recentAttacks = await fetchMapaRecentAttacks()
+      const attack =
+        parseAttackSummary(data.attack) ??
+        recentAttacks.find((a) => a.status === 'active') ??
+        recentAttacks[0] ??
+        null
       return {
         active: objects.filter((o) => o.status === 'active'),
         terminal: objects.filter((o) => MAPA_TERMINAL.has(o.status)),
+        attack,
+        recentAttacks,
       }
     } catch (err) {
       lastErr = err
