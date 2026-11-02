@@ -23,6 +23,59 @@ const LOCAL_TRAIL_MAX = 24
 const MIN_MOVE_KM = 0.35
 const TICK_MS = 1000
 
+/** Cruise defaults so predict() can DR when feed omits speed. */
+const DEFAULT_SPEED_KMH: Record<string, number> = {
+  uav: 165,
+  recon: 140,
+  fpv: 110,
+  missile: 750,
+  kab: 350,
+  ballistic: 1600,
+  mig31k: 900,
+  unknown: 150,
+}
+
+/** Ensure active tracks have velocity + past confirmedAt for smooth map DR. */
+function ensureMotion(threat: DisplayThreat): DisplayThreat {
+  if (threat.areaOnly) return threat
+  if (threat.status === 'resolved' || threat.status === 'shot_down' || threat.status === 'vanished') {
+    return threat
+  }
+
+  const bearing =
+    threat.velocity?.bearingDeg ??
+    (threat.heading != null && Number.isFinite(threat.heading) ? threat.heading : null)
+
+  let next: DisplayThreat = threat
+
+  if (bearing != null) {
+    const speed =
+      threat.velocity?.speedKmh && threat.velocity.speedKmh > 0
+        ? threat.velocity.speedKmh
+        : (DEFAULT_SPEED_KMH[threat.type] ?? 150)
+    if (
+      !threat.velocity ||
+      threat.velocity.bearingDeg !== bearing ||
+      !(threat.velocity.speedKmh > 0)
+    ) {
+      next = { ...next, velocity: { speedKmh: speed, bearingDeg: bearing }, heading: bearing }
+    }
+  }
+
+  if (!next.confirmedAt) {
+    next = { ...next, confirmedAt: next.updatedAt }
+  }
+
+  if (next.status !== 'active' && next.status !== 'stale') {
+    // leave unusual statuses alone
+  } else if (next.status === 'stale' && next.velocity) {
+    // Stale feed still benefits from short-horizon DR on the map.
+    next = { ...next, status: 'active' }
+  }
+
+  return next
+}
+
 function appendLocalTrail(
   prev: TrailPoint[] | undefined,
   lat: number,
@@ -175,7 +228,7 @@ export function useEnrichedThreats(threats: Threat[]): {
       const match = assignments.get(threat.id)
       if (match) {
         linked += 1
-        return enrichThreatWithMapa(threat, match)
+        return ensureMotion(enrichThreatWithMapa(threat, match))
       }
 
       let next: DisplayThreat = threat
@@ -197,13 +250,13 @@ export function useEnrichedThreats(threats: Threat[]): {
           }
         }
       }
-      return next
+      return ensureMotion(next)
     })
 
     const liveById = new Map(live.map((t) => [t.id, t]))
     for (const t of live) lastLive.current.set(t.id, t)
 
-    // Revive if the track is live again (NEPTUN and/or MAPA) — avoid 3‑min ghost blocking a return.
+    // Revive if the track is live again (NEPTUN and/or MAPA) — avoid ghost blocking a return.
     for (const id of liveById.keys()) {
       if (ended.current.has(id)) ended.current.delete(id)
     }

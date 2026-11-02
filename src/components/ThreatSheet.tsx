@@ -95,7 +95,7 @@ export function ThreatSheet({ threat, now, userLocation, onClose }: Props) {
               <dd>
                 {threat.endKind === 'shot_down'
                   ? 'Позначено як збите (MAPA eliminated / підтвердження джерел). Маркер зникне за ~1 хв.'
-                  : 'Зникло з живого трекінгу (немає оновлень або hit_target). Іконка й трек лишаються ~3 хв — це не завжди = збито.'}
+                  : 'Зникло з живого трекінгу (немає оновлень або hit_target). Іконка й трек лишаються ~5 хв — це не завжди = збито.'}
               </dd>
             </div>
           ) : null}

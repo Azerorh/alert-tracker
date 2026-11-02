@@ -349,10 +349,18 @@ function lastSeenIso(match: MapaObject, fallback: string): string {
   ).toISOString()
 }
 
-/**
- * Anchor on MAPA: prefer predicted_lat/lon (MAPA already extrapolated),
- * otherwise last fix + velocity for local predict(). Avoid double-DR when predicted exists.
- */
+/** Fallback cruise speeds when MAPA/NEPTUN omit speed — keeps local predict() moving. */
+const DEFAULT_SPEED_KMH: Record<string, number> = {
+  uav: 165,
+  recon: 140,
+  fpv: 110,
+  missile: 750,
+  kab: 350,
+  ballistic: 1600,
+  mig31k: 900,
+  unknown: 150,
+}
+
 function asMatch(threat: Threat, match: MapaMatch | MapaObject): MapaMatch {
   if ('object' in match && (match as MapaMatch).object) return match as MapaMatch
   const obj = match as MapaObject
@@ -364,6 +372,24 @@ function asMatch(threat: Threat, match: MapaMatch | MapaObject): MapaMatch {
   }
 }
 
+function resolveVelocity(
+  threat: Threat,
+  speed: number | null | undefined,
+  heading: number | null,
+): Threat['velocity'] {
+  if (heading == null || !Number.isFinite(heading)) return threat.velocity
+  const kmh =
+    speed != null && speed > 0
+      ? speed
+      : (threat.velocity?.speedKmh ?? DEFAULT_SPEED_KMH[threat.type] ?? 150)
+  return { speedKmh: kmh, bearingDeg: heading }
+}
+
+/**
+ * Anchor on MAPA last fix + last_seen so SDK predict() can dead-reckon forward
+ * between polls. Do NOT snap to predicted_* with confirmedAt=now — that freezes
+ * motion and makes markers jitter every refresh.
+ */
 export function enrichThreatWithMapa(threat: Threat, match: MapaMatch | MapaObject): Threat {
   const m = asMatch(threat, match)
 
@@ -388,6 +414,8 @@ export function enrichThreatWithMapa(threat: Threat, match: MapaMatch | MapaObje
     Number.isFinite(obj.predicted_lat) &&
     Number.isFinite(obj.predicted_lon)
 
+  const velocity = resolveVelocity(threat, speed, heading)
+
   // Strong disagreement: keep NEPTUN point, only borrow trail/kinematics lightly + widen CEP.
   if (disagree && threat.positionQuality === 'confirmed') {
     const baseUnc = threat.uncertaintyKm ?? 10
@@ -395,33 +423,25 @@ export function enrichThreatWithMapa(threat: Threat, match: MapaMatch | MapaObje
       ...threat,
       trail: mergedTrail?.length ? mergedTrail : threat.trail,
       heading: heading ?? threat.heading,
-      velocity:
-        speed != null && heading != null
-          ? { speedKmh: speed, bearingDeg: heading }
-          : threat.velocity,
+      velocity,
+      // Keep a past confirmedAt so predict() still advances between NEPTUN ticks.
+      confirmedAt: threat.confirmedAt ?? threat.updatedAt,
+      status: threat.status === 'resolved' ? threat.status : 'active',
       uncertaintyKm: Math.max(baseUnc, Math.min(22, m.distKm * 0.45 + 6)),
       positionQuality: 'approx',
     }
   }
 
-  let lat: number
-  let lon: number
-  let confirmedAt: string
-
-  if (hasPredicted) {
-    lat = obj.predicted_lat as number
-    lon = obj.predicted_lon as number
-    // Freeze SDK dead-reckoning — MAPA prediction is the inter-poll anchor.
-    confirmedAt = new Date().toISOString()
-  } else {
-    lat = obj.lat
-    lon = obj.lon
-    confirmedAt = lastSeenIso(obj, threat.confirmedAt ?? threat.updatedAt)
-  }
+  // Last reported fix + when it was seen. Local RAF predict() extrapolates from here.
+  const lat = obj.lat
+  const lon = obj.lon
+  const confirmedAt = lastSeenIso(obj, threat.confirmedAt ?? threat.updatedAt)
 
   const goodScore = m.score <= 10 || m.sticky
   const uncFromDist = Math.min(14, 3 + m.distKm * 0.35)
-  const unc = disagree ? Math.max(uncFromDist, 10) : Math.min(uncFromDist, goodScore ? 8 : 12)
+  // Slightly wider CEP when we DR past the last fix (MAPA predicted was a soft hint only).
+  const uncBase = disagree ? Math.max(uncFromDist, 10) : Math.min(uncFromDist, goodScore ? 8 : 12)
+  const unc = hasPredicted ? Math.max(uncBase, uncBase + 1.5) : uncBase
 
   const mapaCount =
     obj.amount != null && Number.isFinite(obj.amount) && obj.amount > 0
@@ -434,11 +454,10 @@ export function enrichThreatWithMapa(threat: Threat, match: MapaMatch | MapaObje
     lon,
     heading,
     trail: mergedTrail?.length ? mergedTrail : threat.trail,
-    velocity:
-      speed != null && heading != null
-        ? { speedKmh: speed, bearingDeg: heading }
-        : threat.velocity,
+    velocity,
     confirmedAt,
+    // predict() only flies when status === 'active'
+    status: 'active',
     uncertaintyKm: unc,
     positionQuality: hasPredicted || goodScore ? 'mapa' : 'approx',
     count: Math.max(threat.count ?? 0, mapaCount ?? 0) || threat.count,
