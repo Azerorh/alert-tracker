@@ -582,9 +582,78 @@ a {
   min-height: 0;
 }
 
+.map-shell {
+  position: absolute;
+  inset: 0;
+}
+
 .map-root {
   position: absolute;
   inset: 0;
+}
+
+/* RF takeoff cues when airbase is outside the viewport. */
+.rf-av-edge-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+}
+
+.rf-av-edge {
+  position: absolute;
+  width: 56px;
+  height: 72px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+
+.rf-av-edge-icon {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  opacity: 0.92;
+  filter: drop-shadow(0 0 4px rgba(20, 8, 40, 0.9));
+}
+
+.rf-av-edge.is-selected .rf-av-edge-icon {
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(196, 160, 255, 0.85));
+}
+
+/* Local "up" = into the map after inboundDeg rotation. */
+.rf-av-edge-arrows {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 2px;
+  gap: 2px;
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.rf-av-edge.is-selected .rf-av-edge-arrows {
+  opacity: 0.72;
+}
+
+.rf-av-edge-chevron {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 7px solid rgba(232, 214, 255, 0.9);
 }
 
 .map-root .maplibregl-ctrl-group {

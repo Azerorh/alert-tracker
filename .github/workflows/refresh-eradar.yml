@@ -1,6 +1,6 @@
 name: Refresh air TG zones
 
-# Light 15‑min pull — eRadar dangers + UA monitor place buffers.
+# Light 15‑min pull — eRadar dangers + UA monitor place buffers + RF takeoffs.
 
 on:
   schedule:
@@ -28,14 +28,17 @@ jobs:
       - name: Refresh UA air-monitor TG zones
         run: node scripts/refresh-ua-air-tg.mjs
         continue-on-error: true
+      - name: Refresh RF aviation takeoffs
+        run: node scripts/refresh-rf-aviation.mjs
+        continue-on-error: true
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/geo/eradar.json public/geo/ua-air-tg.json
+          git add public/geo/eradar.json public/geo/ua-air-tg.json public/geo/rf-aviation.json
           if git diff --staged --quiet; then
             echo "No air TG zone changes"
             exit 0
           fi
-          git commit -m "chore: refresh air TG zones (eRadar + UA monitors)"
+          git commit -m "chore: refresh air TG zones (eRadar + UA monitors + RF aviation)"
           git push

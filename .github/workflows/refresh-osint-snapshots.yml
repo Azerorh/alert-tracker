@@ -51,14 +51,17 @@ jobs:
       - name: Refresh power TG emergency outages snapshot
         run: node scripts/refresh-power-tg.mjs
         continue-on-error: true
+      - name: Refresh RF aviation takeoffs
+        run: node scripts/refresh-rf-aviation.mjs
+        continue-on-error: true
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/geo/dsm-ru.json public/geo/ru-alerts.json public/geo/eradar.json public/geo/ua-air-tg.json public/geo/warspotting.json public/geo/warspotting-evidence.json public/geo/rf-sightings.json public/geo/geoconfirmed-ground.json public/geo/power-outages.json public/geo/power-tg-outages.json
+          git add public/geo/dsm-ru.json public/geo/ru-alerts.json public/geo/eradar.json public/geo/ua-air-tg.json public/geo/rf-aviation.json public/geo/warspotting.json public/geo/warspotting-evidence.json public/geo/rf-sightings.json public/geo/geoconfirmed-ground.json public/geo/power-outages.json public/geo/power-tg-outages.json
           if git diff --staged --quiet; then
             echo "No snapshot changes"
             exit 0
           fi
-          git commit -m "chore: refresh OSINT snapshots (RU / eRadar / UA TG / DSM / WarSpotting / sightings / GeoConfirmed / power)"
+          git commit -m "chore: refresh OSINT snapshots (RU / eRadar / UA TG / RF aviation / DSM / WarSpotting / sightings / GeoConfirmed / power)"
           git push

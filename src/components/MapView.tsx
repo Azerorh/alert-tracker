@@ -53,6 +53,13 @@ import {
 import { powerTgSelectId, type PowerTgMarker } from '../lib/powerTgOutages'
 import { buildEradarFeatures, type EradarZone } from '../lib/eradar'
 import {
+  buildRfAviationFeatures,
+  computeRfAvEdgeCues,
+  rfAvIconUrl,
+  type RfAviationEvent,
+  type RfAvEdgeCue,
+} from '../lib/rfAviation'
+import {
   ruBplaMarkerId,
   type RuAlertZone,
   type RuTrajectory,
@@ -97,6 +104,7 @@ type Props = {
   powerTgMarkers: PowerTgMarker[]
   powerQueue: ResolvedPowerQueue | null
   eradarZones: EradarZone[]
+  rfAviation: RfAviationEvent[]
 }
 
 const THREATS_SOURCE = 'threats'
@@ -121,6 +129,7 @@ const POWER_TG_SOURCE = 'power-tg-points'
 const POWER_SIGNAL_SOURCE = 'power-signal-zones'
 const POWER_QUEUE_SOURCE = 'power-queue-pin'
 const ERADAR_SOURCE = 'eradar-zones'
+const RF_AV_SOURCE = 'rf-aviation'
 const RUSSIA_SOURCE = 'russia-outline'
 const RUSSIA_OBLASTS_SOURCE = 'russia-oblasts'
 
@@ -138,6 +147,8 @@ const AIR_LAYER_IDS = [
   'ru-traj-arrow',
   'ru-fix-halo',
   'ru-fix-dot',
+  'rf-av-halo',
+  'rf-av-icon',
   'threat-uncertainty',
   'threat-halo',
   'threat-icon',
@@ -718,10 +729,14 @@ export function MapView({
   powerTgMarkers,
   powerQueue,
   eradarZones,
+  rfAviation,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const [ready, setReady] = useState(false)
+  const [edgeCues, setEdgeCues] = useState<RfAvEdgeCue[]>([])
+  const rfAviationRef = useRef(rfAviation)
+  const edgeIconUrl = useRef(rfAvIconUrl())
   const ruCentroidsRef = useRef<Map<string, [number, number]>>(new Map())
   const selectedRef = useRef(selectedId)
   const onSelectRef = useRef(onSelect)
@@ -762,6 +777,10 @@ export function MapView({
   useEffect(() => {
     mapModeRef.current = mapMode
   }, [mapMode])
+
+  useEffect(() => {
+    rfAviationRef.current = rfAviation
+  }, [rfAviation])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -887,6 +906,7 @@ export function MapView({
         map.addSource(POWER_TG_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(POWER_SIGNAL_SOURCE, { type: 'geojson', data: emptyPolygons() })
         map.addSource(POWER_QUEUE_SOURCE, { type: 'geojson', data: emptyPoints() })
+        map.addSource(RF_AV_SOURCE, { type: 'geojson', data: emptyPoints() })
         map.addSource(ERADAR_SOURCE, {
           type: 'geojson',
           data: emptyPolygons(),
@@ -1338,6 +1358,65 @@ export function MapView({
             ],
             'line-opacity': 0.85,
             'line-dasharray': [1.6, 1.4],
+          },
+        })
+
+        addLayerSafe({
+          id: 'rf-av-halo',
+          type: 'circle',
+          source: RF_AV_SOURCE,
+          paint: {
+            'circle-radius': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              3,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 18, 12],
+              7,
+              ['case', ['==', ['to-number', ['get', 'selected']], 1], 28, 18],
+            ],
+            'circle-color': '#c4a0ff',
+            'circle-opacity': [
+              'case',
+              ['==', ['to-number', ['get', 'selected']], 1],
+              0.35,
+              0.2,
+            ],
+            'circle-blur': 0.45,
+          },
+        })
+
+        addLayerSafe({
+          id: 'rf-av-icon',
+          type: 'symbol',
+          source: RF_AV_SOURCE,
+          layout: {
+            'icon-image': ['get', 'icon'],
+            'icon-size': [
+              'interpolate',
+              ['linear'],
+              ['zoom'],
+              3,
+              0.55,
+              7,
+              0.85,
+            ],
+            'icon-rotate': ['to-number', ['get', 'bearing']],
+            'icon-rotation-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'text-field': ['get', 'airbase'],
+            'text-size': 10,
+            'text-offset': [0, 1.6],
+            'text-anchor': 'top',
+            'text-optional': true,
+            'text-allow-overlap': false,
+          },
+          paint: {
+            'icon-opacity': 0.95,
+            'text-color': '#e8d6ff',
+            'text-halo-color': '#1a0828',
+            'text-halo-width': 1.2,
           },
         })
 
@@ -1892,6 +1971,8 @@ export function MapView({
                   'npz-icon',
                   'dsm-icon',
                   'ru-bpla-icon',
+                  'rf-av-icon',
+                  'rf-av-halo',
                   'threat-icon',
                   'threat-halo',
                   'eradar-fill',
@@ -1922,6 +2003,8 @@ export function MapView({
           'dsm-icon',
           'npz-icon',
           'ru-bpla-icon',
+          'rf-av-icon',
+          'rf-av-halo',
           'eradar-fill',
           'eradar-line',
           'ground-icon',
@@ -2044,6 +2127,47 @@ export function MapView({
       mapMode === 'air' ? buildEradarFeatures(eradarZones, selectedId) : emptyPolygons(),
     )
   }, [eradarZones, selectedId, ready, mapMode])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+    const src = map.getSource(RF_AV_SOURCE) as GeoJSONSource | undefined
+    src?.setData(
+      mapMode === 'air' ? buildRfAviationFeatures(rfAviation, selectedId) : emptyPoints(),
+    )
+  }, [rfAviation, selectedId, ready, mapMode])
+
+  // Off-screen airbase cues on the viewport edge (direction toward RF).
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready) return
+
+    const refresh = () => {
+      if (mapModeRef.current !== 'air' || rfAviationRef.current.length === 0) {
+        setEdgeCues([])
+        return
+      }
+      const canvas = map.getCanvas()
+      const w = canvas.clientWidth
+      const h = canvas.clientHeight
+      const cues = computeRfAvEdgeCues(
+        rfAviationRef.current,
+        (lon, lat) => map.project([lon, lat]),
+        w,
+        h,
+        selectedRef.current,
+      )
+      setEdgeCues(cues)
+    }
+
+    refresh()
+    map.on('move', refresh)
+    map.on('resize', refresh)
+    return () => {
+      map.off('move', refresh)
+      map.off('resize', refresh)
+    }
+  }, [ready, rfAviation, selectedId, mapMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -2295,5 +2419,37 @@ export function MapView({
     mapMode,
   ])
 
-  return <div className="map-root" ref={containerRef} role="presentation" />
+  return (
+    <div className="map-shell">
+      <div className="map-root" ref={containerRef} role="presentation" />
+      {mapMode === 'air' && edgeCues.length > 0 ? (
+        <div className="rf-av-edge-layer">
+          {edgeCues.map((cue) => (
+            <button
+              key={cue.id}
+              type="button"
+              className={`rf-av-edge${cue.selected ? ' is-selected' : ''}`}
+              style={{ left: cue.x, top: cue.y }}
+              title={`${cue.title} · ${cue.airbase}`}
+              aria-label={`${cue.title}, ${cue.airbase}, напрям вильоту`}
+              onClick={(ev) => {
+                ev.stopPropagation()
+                onSelect(cue.selectId === selectedId ? null : cue.selectId)
+              }}
+            >
+              <span
+                className="rf-av-edge-arrows"
+                style={{ transform: `rotate(${cue.inboundDeg}deg)` }}
+              >
+                <span className="rf-av-edge-chevron" />
+                <span className="rf-av-edge-chevron" />
+                <span className="rf-av-edge-chevron" />
+              </span>
+              <img className="rf-av-edge-icon" src={edgeIconUrl.current} alt="" />
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
 }

@@ -8,6 +8,7 @@ import { GroundSheet } from './components/GroundSheet'
 import { EradarSheet } from './components/EradarSheet'
 import { Legend } from './components/Legend'
 import { MapView } from './components/MapView'
+import { RfAviationSheet } from './components/RfAviationSheet'
 import { PowerOutageSheet } from './components/PowerOutageSheet'
 import { PowerQueueBar } from './components/PowerQueueBar'
 import { PowerQueueSheet } from './components/PowerQueueSheet'
@@ -18,6 +19,7 @@ import { TopBar } from './components/TopBar'
 import { WatchToasts } from './components/WatchToasts'
 import { useEnrichedThreats } from './hooks/useEnrichedThreats'
 import { useTgAirZones } from './hooks/useTgAirZones'
+import { useRfAviation } from './hooks/useRfAviation'
 import { useGroundLosses } from './hooks/useGroundLosses'
 import { useNeptun } from './hooks/useNeptun'
 import { useNow } from './hooks/useNow'
@@ -30,6 +32,7 @@ import { usePowerTgOutages } from './hooks/usePowerTgOutages'
 import { useRfSightings } from './hooks/useRfSightings'
 import { useRuAlerts } from './hooks/useRuAlerts'
 import { tgAirZoneById } from './lib/tgAirZones'
+import { rfAvById } from './lib/rfAviation'
 import { parsePowerSelectId, powerOblastByKey } from './lib/powerOutages'
 import { POWER_QUEUE_SELECT_ID } from './lib/powerQueue'
 import { parsePowerTgSelectId, powerTgById } from './lib/powerTgOutages'
@@ -77,6 +80,7 @@ export default function App() {
   const ruAlerts = useRuAlerts()
   const [mapMode, setMapMode] = useState<MapMode>('air')
   const tgAir = useTgAirZones(mapMode === 'air')
+  const rfAv = useRfAviation(mapMode === 'air')
   const ground = useGroundLosses(mapMode === 'ground')
   const rfSight = useRfSightings(mapMode === 'ground')
   const gcGround = useGeoConfirmedGround(mapMode === 'ground')
@@ -297,6 +301,7 @@ export default function App() {
   const selectedPower = powerOblastByKey(power.payload, selectedPowerKey)
   const selectedTgAir =
     mapMode === 'air' ? tgAirZoneById(tgAir.zones, selectedId) : null
+  const selectedRfAv = mapMode === 'air' ? rfAvById(rfAv.events, selectedId) : null
 
   const activeLinkedPool = enrichedThreats.filter((t) => isActiveTrack(t)).length
 
@@ -395,6 +400,7 @@ export default function App() {
           powerTgMarkers={powerTg.markers}
           powerQueue={myQueue.resolved}
           eradarZones={tgAir.zones}
+          rfAviation={rfAv.events}
         />
 
         <div className="overlay-stack">
@@ -445,6 +451,7 @@ export default function App() {
             dsm.status === 'live' ||
             ruAlerts.status === 'live' ||
             tgAir.status === 'live' ||
+            rfAv.status === 'live' ||
             endedCount.shot_down + endedCount.vanished > 0) ? (
             <p className="track-hint">
               {[
@@ -457,6 +464,9 @@ export default function App() {
                   : null,
                 tgAir.status === 'live' && tgAir.zones.length > 0
                   ? `TG-зони ${tgAir.zones.length}`
+                  : null,
+                rfAv.status === 'live' && rfAv.events.length > 0
+                  ? `вильоти РФ ${rfAv.events.length}`
                   : null,
                 ruAlerts.status === 'live' && ruAlerts.alerts.length > 0
                   ? `РФ ${ruAlerts.alerts.length} обл.`
@@ -521,7 +531,9 @@ export default function App() {
 
       {/* Outside map-stage so width tracks .app-shell (not the inflated layout viewport). */}
       {mapMode === 'air' ? (
-        selectedTgAir ? (
+        selectedRfAv ? (
+          <RfAviationSheet event={selectedRfAv} onClose={() => setSelectedId(null)} />
+        ) : selectedTgAir ? (
           <EradarSheet zone={selectedTgAir} onClose={() => setSelectedId(null)} />
         ) : (
           <ThreatSheet

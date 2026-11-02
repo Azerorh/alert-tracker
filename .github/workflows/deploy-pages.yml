@@ -13,6 +13,9 @@ on:
       - 'public/geo/geoconfirmed-ground.json'
       - 'public/geo/power-outages.json'
       - 'public/geo/power-tg-outages.json'
+      - 'public/geo/rf-aviation.json'
+      - 'public/geo/eradar.json'
+      - 'public/geo/ua-air-tg.json'
   schedule:
     # Occasional full rebuild so dist/ also embeds recent snapshots.
     - cron: '0 */6 * * *'
@@ -57,6 +60,9 @@ jobs:
         continue-on-error: true
       - name: Refresh power TG emergency outages snapshot
         run: node scripts/refresh-power-tg.mjs
+        continue-on-error: true
+      - name: Refresh RF aviation takeoffs
+        run: node scripts/refresh-rf-aviation.mjs
         continue-on-error: true
       - name: Build
         run: npm run build

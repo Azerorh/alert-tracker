@@ -126,6 +126,10 @@ export function Legend({ mode = 'air' }: Props) {
           TG-зона (монітори)
         </li>
         <li>
+          <img className="legend-icon" src={icons.get('over-ru')} alt="" width={22} height={22} />
+          Виліт з аеродрому РФ
+        </li>
+        <li>
           <span className="legend-swatch occupied" />
           Окупація
         </li>
