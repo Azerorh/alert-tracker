@@ -26,6 +26,7 @@ export function Legend({ mode = 'air' }: Props) {
     }
     map.set('fire', flameIconDataUrl())
     map.set('over-ru', threatIconDataUrl('uav', undefined, true))
+    map.set('rf-takeoff', threatIconDataUrl('mig31k', undefined, true))
     map.set('sighting', groundIconDataUrl('tanks', 'sighting'))
     map.set('loss', groundIconDataUrl('tanks', 'loss'))
     map.set('unit', dsUnitIconDataUrl(false))
@@ -126,7 +127,7 @@ export function Legend({ mode = 'air' }: Props) {
           TG-зона (монітори)
         </li>
         <li>
-          <img className="legend-icon" src={icons.get('over-ru')} alt="" width={22} height={22} />
+          <img className="legend-icon" src={icons.get('rf-takeoff')} alt="" width={22} height={22} />
           Виліт з аеродрому РФ
         </li>
         <li>

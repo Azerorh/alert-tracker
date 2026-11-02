@@ -3,6 +3,7 @@ import {
   assignMapaMatches,
   enrichThreatWithMapa,
   fetchMapaSnapshot,
+  mapaObjectAsThreat,
   MAPA_SHOT_DOWN,
   type MapaAttackSummary,
   type MapaObject,
@@ -284,11 +285,18 @@ export function useEnrichedThreats(threats: Threat[]): {
       })
     }
 
-    // MAPA eliminated / hit on sticky link while NEPTUN may still show the track.
+    // MAPA terminal on sticky link:
+    // - eliminated → shot_down (even if NEPTUN still lists the track)
+    // - lost / hit_target while NEPTUN still live → keep flying (MAPA flicker used to wipe БпЛА)
+    // - lost / hit_target after NEPTUN drop → vanished
     for (const [threatId, mid] of stickyMapa.current) {
       const term = terminalById.get(mid)
       if (!term) continue
-      const kind: ThreatEndKind = MAPA_SHOT_DOWN.has(term.status) ? 'shot_down' : 'vanished'
+      const stillLive = liveById.has(threatId)
+      const killed = MAPA_SHOT_DOWN.has(term.status)
+      if (stillLive && !killed) continue
+
+      const kind: ThreatEndKind = killed ? 'shot_down' : 'vanished'
       const base = liveById.get(threatId) ?? lastLive.current.get(threatId)
       markEnded(
         threatId,
@@ -323,6 +331,16 @@ export function useEnrichedThreats(threats: Threat[]): {
       const kind: ThreatEndKind =
         term && MAPA_SHOT_DOWN.has(term.status) ? 'shot_down' : 'vanished'
       markEnded(id, kind)
+    }
+
+    // Orphan MAPA «eliminated» without a NEPTUN sticky — still show «Збито» briefly.
+    const stickyMids = new Set([...stickyMapa.current.values()].map(String))
+    for (const term of mapaTerminal) {
+      if (!MAPA_SHOT_DOWN.has(term.status)) continue
+      const mid = String(term.id)
+      if (stickyMids.has(mid)) continue
+      const gid = `mapa-${mid}`
+      markEnded(gid, 'shot_down', mapaObjectAsThreat(term))
     }
 
     prevLiveIds.current = new Set(liveById.keys())

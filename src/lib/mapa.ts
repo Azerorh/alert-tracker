@@ -111,6 +111,46 @@ const DISAGREE_FRAC = 0.55
 export const MAPA_SHOT_DOWN = new Set(['eliminated'])
 export const MAPA_TERMINAL = new Set(['eliminated', 'hit_target', 'lost'])
 
+function threatTypeFromMapaKind(kind: string): ThreatType {
+  if (kind === 'drone_fpv') return 'fpv'
+  if (kind === 'drone_jet' || kind === 'drone_piston') return 'uav'
+  if (kind === 'missile_cruise') return 'missile'
+  if (kind === 'missile_ballistic') return 'ballistic'
+  if (kind === 'bomb') return 'kab'
+  return 'unknown'
+}
+
+/** Build a NEPTUN-shaped threat from a MAPA object (orphan ghosts / fallbacks). */
+export function mapaObjectAsThreat(obj: MapaObject): Threat {
+  const seen = lastSeenIso(obj, new Date().toISOString())
+  const heading =
+    obj.heading != null && Number.isFinite(obj.heading) ? obj.heading : null
+  const speed = obj.speed_kmh != null && obj.speed_kmh > 0 ? obj.speed_kmh : null
+  return {
+    id: `mapa-${obj.id}`,
+    type: threatTypeFromMapaKind(obj.kind),
+    title: obj.title || 'MAPA',
+    region: '',
+    district: '',
+    lat: obj.lat,
+    lon: obj.lon,
+    heading,
+    updatedAt: seen,
+    confirmedAt: seen,
+    explanationShort: obj.title || 'Об’єкт MAPA',
+    status: 'active',
+    velocity:
+      speed != null && heading != null
+        ? { speedKmh: speed, bearingDeg: heading }
+        : undefined,
+    uncertaintyKm: 8,
+    positionQuality: 'mapa',
+    advisory: true,
+    trail: mapaTrailToThreatTrail(obj.trail),
+    count: obj.amount != null && obj.amount > 0 ? Math.round(obj.amount) : undefined,
+  }
+}
+
 export type MapaSnapshot = {
   active: MapaObject[]
   terminal: MapaObject[]
