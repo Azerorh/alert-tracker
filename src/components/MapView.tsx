@@ -154,6 +154,12 @@ const UK_ONLY_TEXT_FIELD: maplibregl.ExpressionSpecification = [
   ['get', 'name'],
 ]
 
+/** Dark style ships place labels at ~rgb(101,101,101) — unreadable on phones. */
+const PLACE_LABEL_COLOR = '#f5f7fa'
+const PLACE_LABEL_HALO = 'rgba(8, 12, 20, 0.92)'
+const PLACE_LABEL_LAYER =
+  /^(place_city|place_city_large|place_town|place_village|place_suburb|place_other|place_state|place_country)/
+
 function preferUkrainianBasemapLabels(map: MapLibreMap) {
   const layers = map.getStyle().layers ?? []
   for (const layer of layers) {
@@ -166,6 +172,26 @@ function preferUkrainianBasemapLabels(map: MapLibreMap) {
       map.setLayoutProperty(layer.id, 'text-field', UK_ONLY_TEXT_FIELD)
     } catch (err) {
       console.warn('label locale patch failed', layer.id, err)
+    }
+
+    if (!PLACE_LABEL_LAYER.test(layer.id)) continue
+    try {
+      map.setPaintProperty(layer.id, 'text-color', PLACE_LABEL_COLOR)
+      map.setPaintProperty(layer.id, 'text-halo-color', PLACE_LABEL_HALO)
+      map.setPaintProperty(layer.id, 'text-halo-width', 1.8)
+      map.setPaintProperty(layer.id, 'text-halo-blur', 0.4)
+      // Slightly larger for city / oblast readability on small screens.
+      if (layer.id === 'place_city' || layer.id === 'place_town') {
+        map.setLayoutProperty(layer.id, 'text-size', 12)
+      } else if (layer.id === 'place_city_large') {
+        map.setLayoutProperty(layer.id, 'text-size', 15)
+      } else if (layer.id === 'place_state') {
+        map.setLayoutProperty(layer.id, 'text-size', 12)
+      } else if (layer.id === 'place_village' || layer.id === 'place_suburb') {
+        map.setLayoutProperty(layer.id, 'text-size', 11)
+      }
+    } catch (err) {
+      console.warn('label contrast patch failed', layer.id, err)
     }
   }
 }
