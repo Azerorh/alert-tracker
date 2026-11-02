@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { resolvePhotosFromSources } from '../lib/sourcePhotos'
 import { ABROAD_ICON_COLOR } from '../lib/threatIcons'
 import {
   fetchGroundEvidence,
@@ -29,25 +30,46 @@ export function GroundSheet({ loss, onClose }: Props) {
   const [sources, setSources] = useState<string[]>([])
   const [viewUrl, setViewUrl] = useState<string | null>(null)
   const [photoFailed, setPhotoFailed] = useState<Record<string, boolean>>({})
+  const [photosLoading, setPhotosLoading] = useState(false)
 
   useEffect(() => {
     if (!loss) return
     const wsId = loss.wsId ?? numericWarspottingId(loss.id)
-    setPhotos(loss.photos ?? [])
-    setSources(loss.sources ?? [])
+    let nextPhotos = [...(loss.photos ?? [])]
+    let nextSources = [...(loss.sources ?? [])]
+    setPhotos(nextPhotos)
+    setSources(nextSources)
     setViewUrl(loss.viewUrl ?? (wsId != null ? warspottingViewUrl(wsId) : null))
     setPhotoFailed({})
+    setPhotosLoading(false)
 
-    if (wsId == null) return
     let cancelled = false
     void (async () => {
-      const ev = await fetchGroundEvidence(wsId)
-      if (cancelled || !ev) return
-      const preferred = pickEvidencePhotos(ev, loss.photos ?? [])
-      if (preferred.length) setPhotos(preferred)
-      if (ev.sources?.length) setSources(ev.sources)
-      if (ev.viewUrl) setViewUrl(ev.viewUrl)
+      if (wsId != null) {
+        const ev = await fetchGroundEvidence(wsId)
+        if (cancelled) return
+        if (ev) {
+          const preferred = pickEvidencePhotos(ev, loss.photos ?? [])
+          if (preferred.length) {
+            nextPhotos = preferred
+            setPhotos(preferred)
+          }
+          if (ev.sources?.length) {
+            nextSources = ev.sources
+            setSources(ev.sources)
+          }
+          if (ev.viewUrl) setViewUrl(ev.viewUrl)
+        }
+      }
+
+      if (cancelled || nextPhotos.length > 0 || nextSources.length === 0) return
+      setPhotosLoading(true)
+      const fromSrc = await resolvePhotosFromSources(nextSources)
+      if (cancelled) return
+      setPhotosLoading(false)
+      if (fromSrc.length) setPhotos(fromSrc)
     })()
+
     return () => {
       cancelled = true
     }
@@ -87,7 +109,15 @@ export function GroundSheet({ loss, onClose }: Props) {
               </a>
             ))}
           </div>
-        ) : null}
+        ) : photosLoading ? (
+          <p className="sheet-explain">Шукаємо прев’ю в джерелах…</p>
+        ) : (
+          <p className="sheet-explain">
+            {fromGc
+              ? 'Прев’ю фото тут немає (X/Instagram часто без прямого кадру). Відкрийте джерело нижче.'
+              : 'Фото в кеші немає: WarSpotting зараз блокує скрейп сторінок (Cloudflare). Відкрийте WarSpotting або джерело нижче.'}
+          </p>
+        )}
 
         <p className="sheet-explain">
           {fromGc
