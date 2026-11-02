@@ -5,6 +5,7 @@ import { DEEPSTATE_ATTRIBUTION_URL, NEPTUN_ATTRIBUTION_URL } from '../lib/neptun
 import { GEOCONFIRMED_URL } from '../lib/geoConfirmedGround'
 import { RF_SIGHTING_CHANNELS } from '../lib/rfSightings'
 import { NAHR_MAP_URL, NAHR_TG_CHANNELS } from '../lib/ruAlerts'
+import { POWER_ATTRIBUTION_URL } from '../lib/powerOutages'
 import { WARSPOTTING_URL } from '../lib/warspotting'
 
 export function FooterBar() {
@@ -73,6 +74,12 @@ export function FooterBar() {
             WarSpotting
           </a>{' '}
           (OSINT-фото ≤21 діб, не live)
+          {' · '}
+          світло:{' '}
+          <a href={POWER_ATTRIBUTION_URL} target="_blank" rel="noreferrer">
+            КолиСвітло
+          </a>{' '}
+          (графіки ОСР, орієнтовно)
           {' · '}
           GeoConfirmed:{' '}
           <a href={GEOCONFIRMED_URL} target="_blank" rel="noreferrer">

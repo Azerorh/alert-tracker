@@ -6,6 +6,7 @@ import { DsUnitSheet } from './components/DsUnitSheet'
 import { GroundSheet } from './components/GroundSheet'
 import { Legend } from './components/Legend'
 import { MapView } from './components/MapView'
+import { PowerOutageSheet } from './components/PowerOutageSheet'
 import { SightingSheet } from './components/SightingSheet'
 import { ThreatSheet } from './components/ThreatSheet'
 import { TopBar } from './components/TopBar'
@@ -17,8 +18,10 @@ import { useNow } from './hooks/useNow'
 import { useDroneStrikeLayer } from './hooks/useDroneStrikeLayer'
 import { useDsUnits } from './hooks/useDsUnits'
 import { useGeoConfirmedGround } from './hooks/useGeoConfirmedGround'
+import { usePowerOutages } from './hooks/usePowerOutages'
 import { useRfSightings } from './hooks/useRfSightings'
 import { useRuAlerts } from './hooks/useRuAlerts'
+import { parsePowerSelectId, powerOblastByKey } from './lib/powerOutages'
 import { findDsmDisplayThreat } from './lib/droneStrikeMap'
 import {
   gcMarkerToLoss,
@@ -61,6 +64,7 @@ export default function App() {
   const rfSight = useRfSightings(mapMode === 'ground')
   const gcGround = useGeoConfirmedGround(mapMode === 'ground')
   const dsUnits = useDsUnits(mapMode === 'ground')
+  const power = usePowerOutages(mapMode === 'light')
   const [filter, setFilter] = useState<UiFilterKey>('all')
   const [groundFilter, setGroundFilter] = useState<GroundFilterKey>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -73,7 +77,7 @@ export default function App() {
   const onMapModeChange = (mode: MapMode) => {
     setMapMode(mode)
     setSelectedId(null)
-    if (mode === 'ground') setNearMe(false)
+    if (mode !== 'air') setNearMe(false)
   }
 
   const locate = (thenEnableNearMe = false) => {
@@ -242,21 +246,30 @@ export default function App() {
     return dsUnits.units.find((u) => u.id === selectedId) ?? null
   }, [selectedId, mapMode, dsUnits.units])
 
+  const selectedPowerKey = mapMode === 'light' ? parsePowerSelectId(selectedId) : null
+  const selectedPower = powerOblastByKey(power.payload, selectedPowerKey)
+
   const activeLinkedPool = enrichedThreats.filter((t) => isActiveTrack(t)).length
 
   const alertCount = snap.alerts.length + snap.alertOblasts.length
   const headerCount =
     mapMode === 'air'
       ? visibleThreats.length
-      : visibleGround.length + visibleSightings.length
+      : mapMode === 'ground'
+        ? visibleGround.length + visibleSightings.length
+        : power.oblasts.filter((o) => o.offNowCount > 0).length
   const relativeUpdated =
     mapMode === 'air'
       ? formatRelativeTime(snap.lastUpdatedAt, now)
-      : ground.status === 'live' ||
-          rfSight.status === 'live' ||
-          gcGround.status === 'live'
-        ? 'щойно'
-        : '—'
+      : mapMode === 'light'
+        ? power.status === 'live'
+          ? 'щойно'
+          : '—'
+        : ground.status === 'live' ||
+            rfSight.status === 'live' ||
+            gcGround.status === 'live'
+          ? 'щойно'
+          : '—'
 
   return (
     <div className="app-shell">
@@ -264,9 +277,19 @@ export default function App() {
       <TopBar
         mapMode={mapMode}
         onMapModeChange={onMapModeChange}
-        status={mapMode === 'air' ? snap.status : ground.status === 'live' ? 'live' : 'connecting'}
+        status={
+          mapMode === 'air'
+            ? snap.status
+            : mapMode === 'light'
+              ? power.status === 'live'
+                ? 'live'
+                : 'connecting'
+              : ground.status === 'live'
+                ? 'live'
+                : 'connecting'
+        }
         threatCount={headerCount}
-        alertCount={alertCount}
+        alertCount={mapMode === 'light' ? power.oblasts.length : alertCount}
         lastUpdatedAt={snap.lastUpdatedAt}
         relativeUpdated={relativeUpdated}
         onLocate={() => locate(false)}
@@ -319,19 +342,29 @@ export default function App() {
           rfSightings={visibleSightings}
           dsUnits={dsUnits.units}
           groundFilter={groundFilter}
+          powerOblasts={power.oblasts}
         />
 
         <div className="overlay-stack">
           {mapMode === 'air' ? (
             <FilterBar value={filter} onChange={setFilter} counts={counts} />
-          ) : (
+          ) : mapMode === 'ground' ? (
             <GroundFilterBar
               value={groundFilter}
               onChange={setGroundFilter}
               counts={groundCounts}
             />
-          )}
+          ) : null}
           <Legend mode={mapMode} />
+          {mapMode === 'light' && power.status === 'live' ? (
+            <p className="track-hint">
+              Світло (графіки ОСР / КолиСвітло): {power.oblasts.length} регіонів · зараз без світла
+              за графіком — {power.oblasts.filter((o) => o.offNowCount > 0).length}
+            </p>
+          ) : null}
+          {mapMode === 'light' && power.status === 'error' ? (
+            <p className="track-hint">Не вдалося завантажити графіки відключень</p>
+          ) : null}
           {mapMode === 'air' && mapaStatus === 'live' && mapaLinked > 0 ? (
             <p className="track-hint">
               Уточнення треків: MAPA 1↔1 · зв’язано {mapaLinked} з {activeLinkedPool}
@@ -422,6 +455,12 @@ export default function App() {
           threat={selected}
           now={now}
           userLocation={userLocation}
+          onClose={() => setSelectedId(null)}
+        />
+      ) : mapMode === 'light' ? (
+        <PowerOutageSheet
+          oblast={selectedPower}
+          kyivHour={power.payload?.kyivHour ?? 0}
           onClose={() => setSelectedId(null)}
         />
       ) : selectedSighting ? (

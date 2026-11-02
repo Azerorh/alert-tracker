@@ -104,7 +104,7 @@ export function TopBar({
 
   const modeSwitch = (
     <div className="mode-switch" role="group" aria-label="Режим карти">
-      {(['air', 'ground'] as const).map((mode) => (
+      {(['air', 'ground', 'light'] as const).map((mode) => (
         <button
           key={mode}
           type="button"
@@ -125,7 +125,11 @@ export function TopBar({
         <div>
           <h1 className="brand-title">Тривога.Карта</h1>
           <p className="brand-sub">
-            {mapMode === 'air' ? 'Повітряні загрози України' : 'Наземні втрати техніки'}
+            {mapMode === 'air'
+              ? 'Повітряні загрози України'
+              : mapMode === 'ground'
+                ? 'Наземні втрати техніки'
+                : 'Відключення світла (орієнтовно)'}
           </p>
         </div>
       </div>
@@ -188,6 +192,17 @@ export function TopBar({
                 <div className="stat-chip">
                   <span className="stat-value">{alertCount}</span>
                   <span className="stat-label">зон тривоги</span>
+                </div>
+              </>
+            ) : mapMode === 'light' ? (
+              <>
+                <div className="stat-chip">
+                  <span className="stat-value">{threatCount}</span>
+                  <span className="stat-label">регіонів без світла</span>
+                </div>
+                <div className="stat-chip">
+                  <span className="stat-value">{alertCount}</span>
+                  <span className="stat-label">з графіком</span>
                 </div>
               </>
             ) : (

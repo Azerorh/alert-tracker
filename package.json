@@ -14,7 +14,8 @@
     "refresh:ru-alerts": "node scripts/refresh-ru-alerts.mjs",
     "refresh:warspotting": "node scripts/refresh-warspotting.mjs",
     "refresh:rf-sightings": "node scripts/refresh-rf-sightings.mjs",
-    "refresh:geoconfirmed-ground": "node scripts/refresh-geoconfirmed-ground.mjs"
+    "refresh:geoconfirmed-ground": "node scripts/refresh-geoconfirmed-ground.mjs",
+    "refresh:power-outages": "node scripts/refresh-power-outages.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",

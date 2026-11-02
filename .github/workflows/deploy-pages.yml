@@ -11,6 +11,7 @@ on:
       - 'public/geo/warspotting-evidence.json'
       - 'public/geo/rf-sightings.json'
       - 'public/geo/geoconfirmed-ground.json'
+      - 'public/geo/power-outages.json'
   schedule:
     # Occasional full rebuild so dist/ also embeds recent snapshots.
     - cron: '0 */6 * * *'
@@ -49,6 +50,9 @@ jobs:
         continue-on-error: true
       - name: Refresh GeoConfirmed ground snapshot
         run: node scripts/refresh-geoconfirmed-ground.mjs
+        continue-on-error: true
+      - name: Refresh power outage schedules snapshot
+        run: node scripts/refresh-power-outages.mjs
         continue-on-error: true
       - name: Build
         run: npm run build

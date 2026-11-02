@@ -41,6 +41,7 @@ import {
 } from '../lib/threatDisplay'
 import type { BurningRefinery, DsmStrike } from '../lib/droneStrikeMap'
 import type { MapMode } from '../lib/mapMode'
+import { powerSelectId, type PowerOblast } from '../lib/powerOutages'
 import {
   ruBplaMarkerId,
   type RuAlertZone,
@@ -82,6 +83,7 @@ type Props = {
   rfSightings: RfSighting[]
   dsUnits: DsUnit[]
   groundFilter: GroundFilterKey
+  powerOblasts: PowerOblast[]
 }
 
 const THREATS_SOURCE = 'threats'
@@ -148,6 +150,8 @@ function preferUkrainianBasemapLabels(map: MapLibreMap) {
     }
   }
 }
+
+const POWER_LAYER_IDS = ['power-oblasts-fill', 'power-oblasts-line'] as const
 
 const GROUND_LAYER_IDS = [
   'ground-halo',
@@ -531,6 +535,31 @@ function syncAlertStates(
   for (const key of nextKeys) prevKeys.add(key)
 }
 
+function syncPowerStates(
+  map: MapLibreMap,
+  source: string,
+  oblasts: PowerOblast[],
+  prevKeys: Set<string>,
+) {
+  const next = new Map(oblasts.map((o) => [o.oblastKey, o]))
+  for (const key of prevKeys) {
+    if (!next.has(key)) {
+      map.setFeatureState({ source, id: key }, { power: 0, powerIntensity: 0 })
+    }
+  }
+  for (const [key, o] of next) {
+    map.setFeatureState(
+      { source, id: key },
+      {
+        power: 1,
+        powerIntensity: Math.max(0, Math.min(1, o.intensity || 0)),
+      },
+    )
+  }
+  prevKeys.clear()
+  for (const key of next.keys()) prevKeys.add(key)
+}
+
 export function MapView({
   mapMode,
   threats,
@@ -551,6 +580,7 @@ export function MapView({
   rfSightings,
   dsUnits,
   groundFilter,
+  powerOblasts,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -566,6 +596,7 @@ export function MapView({
   const prevOblastKeys = useRef(new Set<string>())
   const prevRuAlertKeys = useRef(new Set<string>())
   const prevTotAlertKeys = useRef(new Set<string>())
+  const prevPowerKeys = useRef(new Set<string>())
 
   useEffect(() => {
     selectedRef.current = selectedId
@@ -832,6 +863,54 @@ export function MapView({
             'line-color': '#c5e8dc',
             'line-opacity': 0.38,
             'line-width': 1.2,
+          },
+        })
+
+        addLayerSafe({
+          id: 'power-oblasts-fill',
+          type: 'fill',
+          source: OBLASTS_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'fill-color': [
+              'interpolate',
+              ['linear'],
+              ['coalesce', ['feature-state', 'powerIntensity'], 0],
+              0,
+              '#2f6b4f',
+              0.2,
+              '#f0b429',
+              0.5,
+              '#e85d4c',
+              1,
+              '#5c1a1a',
+            ],
+            'fill-opacity': [
+              'case',
+              ['==', ['feature-state', 'power'], 1],
+              [
+                'interpolate',
+                ['linear'],
+                ['coalesce', ['feature-state', 'powerIntensity'], 0],
+                0,
+                0.28,
+                1,
+                0.62,
+              ],
+              0,
+            ],
+          },
+        })
+
+        addLayerSafe({
+          id: 'power-oblasts-line',
+          type: 'line',
+          source: OBLASTS_SOURCE,
+          layout: { visibility: 'none' },
+          paint: {
+            'line-color': '#f5e6c8',
+            'line-opacity': 0.55,
+            'line-width': 1.4,
           },
         })
 
@@ -1442,7 +1521,22 @@ export function MapView({
         })
 
         map.on('click', (e) => {
-          const preferGround = mapModeRef.current === 'ground'
+          const mode = mapModeRef.current
+          if (mode === 'light') {
+            const layers = ['power-oblasts-fill'].filter((id) => map.getLayer(id))
+            const hits = layers.length
+              ? map.queryRenderedFeatures(e.point, { layers })
+              : []
+            const key = hits[0]?.properties?.key ?? hits[0]?.id
+            if (typeof key === 'string' && key) {
+              const sid = powerSelectId(key)
+              onSelectRef.current(sid === selectedRef.current ? null : sid)
+              return
+            }
+            onSelectRef.current(null)
+            return
+          }
+          const preferGround = mode === 'ground'
           const hitLayers = (
             preferGround
               ? [
@@ -1476,6 +1570,7 @@ export function MapView({
           'sighting-icon',
           'sighting-halo',
           'ds-unit-icon',
+          'power-oblasts-fill',
         ]) {
           map.on('mouseenter', layerId, () => {
             map.getCanvas().style.cursor = 'pointer'
@@ -1507,22 +1602,35 @@ export function MapView({
     const map = mapRef.current
     if (!map || !ready) return
     const air = mapMode === 'air'
+    const ground = mapMode === 'ground'
+    const light = mapMode === 'light'
     setLayersVisibility(map, AIR_LAYER_IDS, air)
-    setLayersVisibility(map, GROUND_LAYER_IDS, !air)
+    setLayersVisibility(map, GROUND_LAYER_IDS, ground)
+    setLayersVisibility(map, POWER_LAYER_IDS, light)
+    // Hide UA alert fills in light mode; keep oblast outlines for context.
+    if (map.getLayer('oblasts-fill')) {
+      map.setLayoutProperty('oblasts-fill', 'visibility', air ? 'visible' : 'none')
+    }
+    if (map.getLayer('raions-fill')) {
+      map.setLayoutProperty('raions-fill', 'visibility', air ? 'visible' : 'none')
+    }
+    if (map.getLayer('oblasts-line')) {
+      map.setLayoutProperty('oblasts-line', 'visibility', light ? 'none' : 'visible')
+    }
 
     // Stronger DeepState occupied context when browsing ground markers.
     if (map.getLayer('occupied-fill')) {
-      map.setPaintProperty('occupied-fill', 'fill-opacity', air ? 0.58 : 0.72)
+      map.setPaintProperty('occupied-fill', 'fill-opacity', air ? 0.58 : ground ? 0.72 : 0.35)
     }
     if (map.getLayer('occupied-outline')) {
-      map.setPaintProperty('occupied-outline', 'line-opacity', air ? 0.9 : 1)
-      map.setPaintProperty('occupied-outline', 'line-width', air ? 1.2 : 1.6)
+      map.setPaintProperty('occupied-outline', 'line-opacity', air ? 0.9 : ground ? 1 : 0.55)
+      map.setPaintProperty('occupied-outline', 'line-width', air ? 1.2 : ground ? 1.6 : 1)
     }
     if (map.getLayer('unknown-fill')) {
-      map.setPaintProperty('unknown-fill', 'fill-opacity', air ? 0.42 : 0.55)
+      map.setPaintProperty('unknown-fill', 'fill-opacity', air ? 0.42 : ground ? 0.55 : 0.25)
     }
     if (map.getLayer('unknown-outline')) {
-      map.setPaintProperty('unknown-outline', 'line-opacity', air ? 0.75 : 0.9)
+      map.setPaintProperty('unknown-outline', 'line-opacity', air ? 0.75 : ground ? 0.9 : 0.45)
     }
   }, [mapMode, ready])
 
@@ -1618,6 +1726,12 @@ export function MapView({
     // Track TOT keys so a later empty ruAlerts poll still clears via oblastKeys merge.
     prevTotAlertKeys.current = new Set(totAlerts.map((a) => a.key))
   }, [alerts, alertOblasts, ruAlerts, ready])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !ready || !map.getSource(OBLASTS_SOURCE)) return
+    syncPowerStates(map, OBLASTS_SOURCE, powerOblasts, prevPowerKeys.current)
+  }, [powerOblasts, ready])
 
   useEffect(() => {
     const map = mapRef.current

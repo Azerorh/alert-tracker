@@ -58,6 +58,32 @@ export function Legend({ mode = 'air' }: Props) {
     )
   }
 
+  if (mode === 'light') {
+    return (
+      <div className="legend" aria-label="Легенда">
+        <p className="legend-title">Світло · черги зараз</p>
+        <ul>
+          <li>
+            <span className="legend-swatch power-ok" />
+            Мало / немає відкл. у графіку
+          </li>
+          <li>
+            <span className="legend-swatch power-mid" />
+            Частина черг без світла
+          </li>
+          <li>
+            <span className="legend-swatch power-high" />
+            Багато черг без світла
+          </li>
+        </ul>
+        <p className="legend-note">
+          Орієнтовно за опублікованими графіками ОСР (не істина в останній інстанції). Не
+          гарантує світло в конкретному будинку; можливі аварії та затримки.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="legend" aria-label="Легенда">
       <p className="legend-title">Типи</p>

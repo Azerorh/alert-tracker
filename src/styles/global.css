@@ -751,6 +751,18 @@ a {
   box-shadow: 0 0 0 1px rgba(255, 107, 107, 0.45);
 }
 
+.legend-swatch.power-ok {
+  background: #2f6b4f;
+}
+
+.legend-swatch.power-mid {
+  background: #f0b429;
+}
+
+.legend-swatch.power-high {
+  background: #8b2e24;
+}
+
 .legend-swatch.occupied {
   border-radius: 3px;
   background: #8b0000;
@@ -982,6 +994,82 @@ a {
 .sheet-grid dd {
   margin: 0;
   font-size: 0.92rem;
+}
+
+.power-schedule {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.power-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-bottom: 4px;
+}
+
+.power-group-name {
+  font-weight: 650;
+  font-size: 0.85rem;
+}
+
+.power-now {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.power-now.off {
+  color: #f0b429;
+}
+
+.power-now.on {
+  color: #7dd3c0;
+}
+
+.power-slots {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 3px;
+}
+
+.power-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  color: #0b1220;
+  background: #2f6b4f;
+}
+
+.power-slot.status-no {
+  background: #8b2e24;
+  color: #ffe8e0;
+}
+
+.power-slot.status-first,
+.power-slot.status-second {
+  background: #c45c26;
+  color: #fff4e8;
+}
+
+.power-slot.status-maybe {
+  background: #f0b429;
+}
+
+.power-slot.status-unknown {
+  background: #3a4558;
+  color: var(--muted);
+}
+
+.power-slot.current {
+  outline: 2px solid #7dd3c0;
+  outline-offset: 1px;
 }
 
 .sheet-note dd {
