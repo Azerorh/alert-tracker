@@ -16,7 +16,7 @@ import { ThreatSheet } from './components/ThreatSheet'
 import { TopBar } from './components/TopBar'
 import { WatchToasts } from './components/WatchToasts'
 import { useEnrichedThreats } from './hooks/useEnrichedThreats'
-import { useEradar } from './hooks/useEradar'
+import { useTgAirZones } from './hooks/useTgAirZones'
 import { useGroundLosses } from './hooks/useGroundLosses'
 import { useNeptun } from './hooks/useNeptun'
 import { useNow } from './hooks/useNow'
@@ -28,7 +28,7 @@ import { usePowerQueue } from './hooks/usePowerQueue'
 import { usePowerTgOutages } from './hooks/usePowerTgOutages'
 import { useRfSightings } from './hooks/useRfSightings'
 import { useRuAlerts } from './hooks/useRuAlerts'
-import { eradarZoneById } from './lib/eradar'
+import { tgAirZoneById } from './lib/tgAirZones'
 import { parsePowerSelectId, powerOblastByKey } from './lib/powerOutages'
 import { POWER_QUEUE_SELECT_ID } from './lib/powerQueue'
 import { parsePowerTgSelectId, powerTgById } from './lib/powerTgOutages'
@@ -71,7 +71,7 @@ export default function App() {
   const dsm = useDroneStrikeLayer()
   const ruAlerts = useRuAlerts()
   const [mapMode, setMapMode] = useState<MapMode>('air')
-  const eradar = useEradar(mapMode === 'air')
+  const tgAir = useTgAirZones(mapMode === 'air')
   const ground = useGroundLosses(mapMode === 'ground')
   const rfSight = useRfSightings(mapMode === 'ground')
   const gcGround = useGeoConfirmedGround(mapMode === 'ground')
@@ -269,8 +269,8 @@ export default function App() {
       ? parsePowerSelectId(selectedId)
       : null
   const selectedPower = powerOblastByKey(power.payload, selectedPowerKey)
-  const selectedEradar =
-    mapMode === 'air' ? eradarZoneById(eradar.zones, selectedId) : null
+  const selectedTgAir =
+    mapMode === 'air' ? tgAirZoneById(tgAir.zones, selectedId) : null
 
   const activeLinkedPool = enrichedThreats.filter((t) => isActiveTrack(t)).length
 
@@ -368,7 +368,7 @@ export default function App() {
           powerOblasts={power.oblasts}
           powerTgMarkers={powerTg.markers}
           powerQueue={myQueue.resolved}
-          eradarZones={eradar.zones}
+          eradarZones={tgAir.zones}
         />
 
         <div className="overlay-stack">
@@ -411,45 +411,36 @@ export default function App() {
           {mapMode === 'light' && power.status === 'error' ? (
             <p className="track-hint">Не вдалося завантажити графіки відключень</p>
           ) : null}
-          {mapMode === 'air' && mapaStatus === 'live' ? (
-            <p className="track-hint">
-              MAPA
-              {mapaAttack
-                ? ` · атака #${mapaAttack.id}${mapaAttack.status === 'active' ? ' (жива)' : ''}: БпЛА ${mapaAttack.totalDrones} · ракети ${mapaAttack.totalMissiles} · КАБ ${mapaAttack.totalBombs}`
-                : ''}
-              {mapaLinked > 0
-                ? ` · треки 1↔1 ${mapaLinked}/${activeLinkedPool}`
-                : ''}
-            </p>
-          ) : null}
           {mapMode === 'air' &&
-          dsm.status === 'live' &&
-          (dsm.strikes.length > 0 || dsm.burning.length > 0) ? (
+          (mapaStatus === 'live' ||
+            dsm.status === 'live' ||
+            ruAlerts.status === 'live' ||
+            tgAir.status === 'live' ||
+            endedCount.shot_down + endedCount.vanished > 0) ? (
             <p className="track-hint">
-              Прильоти РФ (24 год): {dsm.strikes.length}
-              {dsm.burning.length ? ` · НПЗ/паливо ${dsm.burning.length}` : ''}
-            </p>
-          ) : null}
-          {mapMode === 'air' && ruAlerts.status === 'live' && ruAlerts.alerts.length > 0 ? (
-            <p className="track-hint">
-              Тривоги РФ (TG): {ruAlerts.alerts.length} регіонів
-            </p>
-          ) : null}
-          {mapMode === 'air' && eradar.status === 'live' && eradar.zones.length > 0 ? (
-            <p className="track-hint">
-              eRadar TG-зони: {eradar.zones.length} (без дубля офіційних тривог)
-            </p>
-          ) : null}
-          {mapMode === 'air' && endedCount.shot_down + endedCount.vanished > 0 ? (
-            <p className="track-hint end-hint">
-              Нещодавно:{' '}
-              {endedCount.shot_down > 0 ? (
-                <span className="end-shot">збито {endedCount.shot_down}</span>
-              ) : null}
-              {endedCount.shot_down > 0 && endedCount.vanished > 0 ? ' · ' : null}
-              {endedCount.vanished > 0 ? (
-                <span className="end-vanished">зникло {endedCount.vanished}</span>
-              ) : null}
+              {[
+                mapaStatus === 'live'
+                  ? `MAPA${
+                      mapaAttack
+                        ? ` #${mapaAttack.id}${mapaAttack.status === 'active' ? '' : ''}: БпЛА ${mapaAttack.totalDrones}/рак ${mapaAttack.totalMissiles}/КАБ ${mapaAttack.totalBombs}`
+                        : ''
+                    }${mapaLinked > 0 ? ` · 1↔1 ${mapaLinked}/${activeLinkedPool}` : ''}`
+                  : null,
+                tgAir.status === 'live' && tgAir.zones.length > 0
+                  ? `TG-зони ${tgAir.zones.length}`
+                  : null,
+                ruAlerts.status === 'live' && ruAlerts.alerts.length > 0
+                  ? `РФ ${ruAlerts.alerts.length} обл.`
+                  : null,
+                dsm.status === 'live' && (dsm.strikes.length > 0 || dsm.burning.length > 0)
+                  ? `удари РФ ${dsm.strikes.length}${dsm.burning.length ? ` · НПЗ ${dsm.burning.length}` : ''}`
+                  : null,
+                endedCount.shot_down + endedCount.vanished > 0
+                  ? `збито ${endedCount.shot_down} · зникло ${endedCount.vanished}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
             </p>
           ) : null}
           {mapMode === 'air' && nearMe && userLocation ? (
@@ -508,8 +499,8 @@ export default function App() {
 
       {/* Outside map-stage so width tracks .app-shell (not the inflated layout viewport). */}
       {mapMode === 'air' ? (
-        selectedEradar ? (
-          <EradarSheet zone={selectedEradar} onClose={() => setSelectedId(null)} />
+        selectedTgAir ? (
+          <EradarSheet zone={selectedTgAir} onClose={() => setSelectedId(null)} />
         ) : (
           <ThreatSheet
             threat={selected}

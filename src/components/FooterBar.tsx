@@ -6,6 +6,7 @@ import { DEEPSTATE_ATTRIBUTION_URL, NEPTUN_ATTRIBUTION_URL } from '../lib/neptun
 import { GEOCONFIRMED_URL } from '../lib/geoConfirmedGround'
 import { RF_SIGHTING_CHANNELS } from '../lib/rfSightings'
 import { NAHR_MAP_URL, NAHR_TG_CHANNELS } from '../lib/ruAlerts'
+import { UA_AIR_TG_CHANNELS } from '../lib/uaAirTgChannels'
 import { POWER_ATTRIBUTION_URL } from '../lib/powerOutages'
 import { WARSPOTTING_URL } from '../lib/warspotting'
 
@@ -47,8 +48,17 @@ export function FooterBar() {
           TG-зони:{' '}
           <a href={ERADAR_ATTRIBUTION_URL} target="_blank" rel="noreferrer">
             eRadar
-          </a>{' '}
-          (снапшот, без дубля офіційних тривог)
+          </a>
+          {' + '}
+          {UA_AIR_TG_CHANNELS.slice(0, 4).map((c, i) => (
+            <span key={c.id}>
+              {i ? ' · ' : null}
+              <a href={c.url} target="_blank" rel="noreferrer">
+                {c.label}
+              </a>
+            </span>
+          ))}{' '}
+          (снапшот ≤45 хв, без дубля офіційних тривог)
           {' · '}
           удари РФ / НПЗ:{' '}
           <a href={DSM_ATTRIBUTION_URL} target="_blank" rel="noreferrer">

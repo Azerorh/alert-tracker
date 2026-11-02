@@ -17,7 +17,8 @@
     "refresh:geoconfirmed-ground": "node scripts/refresh-geoconfirmed-ground.mjs",
     "refresh:power-outages": "node scripts/refresh-power-outages.mjs",
     "refresh:power-tg": "node scripts/refresh-power-tg.mjs",
-    "refresh:eradar": "node scripts/refresh-eradar.mjs"
+    "refresh:eradar": "node scripts/refresh-eradar.mjs",
+    "refresh:ua-air-tg": "node scripts/refresh-ua-air-tg.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",

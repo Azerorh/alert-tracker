@@ -1,6 +1,6 @@
-name: Refresh eRadar snapshot
+name: Refresh air TG zones
 
-# Light 15‑min pull — TG danger zones expire fast; full OSINT stays hourly.
+# Light 15‑min pull — eRadar dangers + UA monitor place buffers.
 
 on:
   schedule:
@@ -24,14 +24,18 @@ jobs:
           node-version: 22
       - name: Refresh eRadar TG danger zones
         run: node scripts/refresh-eradar.mjs
+        continue-on-error: true
+      - name: Refresh UA air-monitor TG zones
+        run: node scripts/refresh-ua-air-tg.mjs
+        continue-on-error: true
       - name: Commit if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add public/geo/eradar.json
+          git add public/geo/eradar.json public/geo/ua-air-tg.json
           if git diff --staged --quiet; then
-            echo "No eRadar changes"
+            echo "No air TG zone changes"
             exit 0
           fi
-          git commit -m "chore: refresh eRadar TG danger zones"
+          git commit -m "chore: refresh air TG zones (eRadar + UA monitors)"
           git push

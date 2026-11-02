@@ -33,14 +33,16 @@ export function EradarSheet({ zone, onClose }: Props) {
     <aside className="threat-sheet" aria-live="polite">
       <SheetChrome
         accent="#f0a020"
-        kicker="TG-зона · eRadar"
+        kicker={
+          zone.id.startsWith('ua-tg-') ? 'TG-зона · монітори UA' : 'TG-зона · eRadar'
+        }
         title={title}
         onClose={onClose}
       >
         {zone.excerpt ? <p className="sheet-explain">{zone.excerpt}</p> : null}
         <p className="sheet-explain">
           Орієнтовна зона згадки (не офіційна тривога і не трек NEPTUN/MAPA). Радіус ~
-          {Math.round(zone.radiusKm)} км.
+          {Math.round(zone.radiusKm)} км · вікно до ~45 хв.
         </p>
         <dl className="sheet-grid">
           <div>

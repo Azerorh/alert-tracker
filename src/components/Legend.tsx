@@ -123,7 +123,7 @@ export function Legend({ mode = 'air' }: Props) {
         </li>
         <li>
           <span className="legend-swatch eradar" />
-          TG-зона eRadar
+          TG-зона (монітори)
         </li>
         <li>
           <span className="legend-swatch occupied" />
