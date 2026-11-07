@@ -46,10 +46,6 @@ import {
   POWER_QUEUE_SELECT_ID,
   type ResolvedPowerQueue,
 } from '../lib/powerQueue'
-import {
-  buildPowerSignalFeatures,
-  primaryMarkerIdFromSignalProps,
-} from '../lib/powerSignalZones'
 import { powerTgSelectId, type PowerTgMarker } from '../lib/powerTgOutages'
 import { buildEradarFeatures, type EradarZone } from '../lib/eradar'
 import {
@@ -211,9 +207,6 @@ function preferUkrainianBasemapLabels(map: MapLibreMap) {
 const POWER_LAYER_IDS = [
   'power-oblasts-fill',
   'power-oblasts-line',
-  'power-signal-fill',
-  'power-signal-line',
-  'power-tg-halo',
   'power-tg-dot',
   'power-queue-halo',
   'power-queue-dot',
@@ -809,6 +802,10 @@ export function MapView({
     mapRef.current = map
 
     let cancelled = false
+
+    map.on('error', (e) => {
+      console.error('maplibre error', e?.error ?? e)
+    })
 
     map.on('load', async () => {
       try {
@@ -1916,32 +1913,13 @@ export function MapView({
               onSelectRef.current(queueId === selectedRef.current ? null : queueId)
               return
             }
-            const tgLayers = ['power-tg-dot', 'power-tg-halo'].filter((id) =>
-              map.getLayer(id),
-            )
+            const tgLayers = ['power-tg-dot'].filter((id) => map.getLayer(id))
             const tgHits = tgLayers.length
               ? map.queryRenderedFeatures(e.point, { layers: tgLayers })
               : []
             const tgId = tgHits[0]?.properties?.id
             if (typeof tgId === 'string' && tgId) {
               onSelectRef.current(tgId === selectedRef.current ? null : tgId)
-              return
-            }
-            const signalLayers = ['power-signal-fill', 'power-signal-line'].filter((id) =>
-              map.getLayer(id),
-            )
-            const signalHits = signalLayers.length
-              ? map.queryRenderedFeatures(e.point, { layers: signalLayers })
-              : []
-            const primary = primaryMarkerIdFromSignalProps(
-              signalHits[0]?.properties as {
-                primaryMarkerId?: string
-                markerIds?: string
-              } | null,
-            )
-            if (primary) {
-              const sid = powerTgSelectId(primary)
-              onSelectRef.current(sid === selectedRef.current ? null : sid)
               return
             }
             const layers = ['power-oblasts-fill'].filter((id) => map.getLayer(id))
@@ -2013,9 +1991,7 @@ export function MapView({
           'sighting-halo',
           'ds-unit-icon',
           'power-oblasts-fill',
-          'power-signal-fill',
           'power-tg-dot',
-          'power-tg-halo',
           'power-queue-dot',
           'power-queue-halo',
         ]) {
@@ -2244,13 +2220,10 @@ export function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !ready) return
+    // Keep signal buffers empty — large rings blocked oblast clicks (e.g. Kyiv).
     const src = map.getSource(POWER_SIGNAL_SOURCE) as GeoJSONSource | undefined
-    src?.setData(
-      mapMode === 'light'
-        ? buildPowerSignalFeatures(powerTgMarkers, powerOblastsFcRef.current, selectedId)
-        : emptyPolygons(),
-    )
-  }, [powerTgMarkers, selectedId, ready, mapMode])
+    src?.setData(emptyPolygons())
+  }, [ready, mapMode])
 
   useEffect(() => {
     const map = mapRef.current
