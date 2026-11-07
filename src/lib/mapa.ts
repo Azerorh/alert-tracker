@@ -110,45 +110,18 @@ const DISAGREE_FRAC = 0.55
 /** MAPA statuses that mean the object is no longer flying as an active track. */
 export const MAPA_SHOT_DOWN = new Set(['eliminated'])
 export const MAPA_TERMINAL = new Set(['eliminated', 'hit_target', 'lost'])
+/** MAPA keeps hours of terminal junk in /current — only use recent ones for ghosts. */
+export const MAPA_TERMINAL_KEEP_MS = 3 * 60_000
 
-function threatTypeFromMapaKind(kind: string): ThreatType {
-  if (kind === 'drone_fpv') return 'fpv'
-  if (kind === 'drone_jet' || kind === 'drone_piston') return 'uav'
-  if (kind === 'missile_cruise') return 'missile'
-  if (kind === 'missile_ballistic') return 'ballistic'
-  if (kind === 'bomb') return 'kab'
-  return 'unknown'
+export function mapaLastSeenMs(obj: MapaObject): number | null {
+  if (obj.last_seen == null) return null
+  return obj.last_seen > 1e12 ? obj.last_seen : obj.last_seen * 1000
 }
 
-/** Build a NEPTUN-shaped threat from a MAPA object (orphan ghosts / fallbacks). */
-export function mapaObjectAsThreat(obj: MapaObject): Threat {
-  const seen = lastSeenIso(obj, new Date().toISOString())
-  const heading =
-    obj.heading != null && Number.isFinite(obj.heading) ? obj.heading : null
-  const speed = obj.speed_kmh != null && obj.speed_kmh > 0 ? obj.speed_kmh : null
-  return {
-    id: `mapa-${obj.id}`,
-    type: threatTypeFromMapaKind(obj.kind),
-    title: obj.title || 'MAPA',
-    region: '',
-    district: '',
-    lat: obj.lat,
-    lon: obj.lon,
-    heading,
-    updatedAt: seen,
-    confirmedAt: seen,
-    explanationShort: obj.title || 'Об’єкт MAPA',
-    status: 'active',
-    velocity:
-      speed != null && heading != null
-        ? { speedKmh: speed, bearingDeg: heading }
-        : undefined,
-    uncertaintyKm: 8,
-    positionQuality: 'mapa',
-    advisory: true,
-    trail: mapaTrailToThreatTrail(obj.trail),
-    count: obj.amount != null && obj.amount > 0 ? Math.round(obj.amount) : undefined,
-  }
+export function isRecentMapaTerminal(obj: MapaObject, now = Date.now()): boolean {
+  const t = mapaLastSeenMs(obj)
+  if (t == null) return false
+  return now - t <= MAPA_TERMINAL_KEEP_MS
 }
 
 export type MapaSnapshot = {
@@ -214,9 +187,13 @@ export async function fetchMapaSnapshot(): Promise<MapaSnapshot> {
         recentAttacks.find((a) => a.status === 'active') ??
         recentAttacks[0] ??
         null
+      const now = Date.now()
       return {
         active: objects.filter((o) => o.status === 'active'),
-        terminal: objects.filter((o) => MAPA_TERMINAL.has(o.status)),
+        // Drop stale eliminated/lost that MAPA leaves in the snapshot for hours.
+        terminal: objects.filter(
+          (o) => MAPA_TERMINAL.has(o.status) && isRecentMapaTerminal(o, now),
+        ),
         attack,
         recentAttacks,
       }

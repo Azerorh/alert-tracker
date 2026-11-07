@@ -3,7 +3,6 @@ import {
   assignMapaMatches,
   enrichThreatWithMapa,
   fetchMapaSnapshot,
-  mapaObjectAsThreat,
   MAPA_SHOT_DOWN,
   type MapaAttackSummary,
   type MapaObject,
@@ -333,16 +332,6 @@ export function useEnrichedThreats(threats: Threat[]): {
       markEnded(id, kind)
     }
 
-    // Orphan MAPA «eliminated» without a NEPTUN sticky — still show «Збито» briefly.
-    const stickyMids = new Set([...stickyMapa.current.values()].map(String))
-    for (const term of mapaTerminal) {
-      if (!MAPA_SHOT_DOWN.has(term.status)) continue
-      const mid = String(term.id)
-      if (stickyMids.has(mid)) continue
-      const gid = `mapa-${mid}`
-      markEnded(gid, 'shot_down', mapaObjectAsThreat(term))
-    }
-
     prevLiveIds.current = new Set(liveById.keys())
 
     // Expire ghosts.
@@ -357,7 +346,11 @@ export function useEnrichedThreats(threats: Threat[]): {
 
     // Live list excludes anything we already marked ended (MAPA kill wins).
     const liveOut = live.filter((t) => !ended.current.has(t.id))
-    const ghosts = [...ended.current.values()].map((e) => e.threat)
+    // Cap ended ghosts so a MAPA dump never paints the map with «Збито».
+    const ghosts = [...ended.current.values()]
+      .sort((a, b) => b.endAt - a.endAt)
+      .slice(0, 12)
+      .map((e) => e.threat)
 
     const endedCount = { shot_down: 0, vanished: 0 }
     for (const e of ended.current.values()) {
